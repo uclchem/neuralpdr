@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project]
+name = "neuralpdr"
+version = "2024.9.6"
+dependencies = [
+    "jax",
+    "numpy",
+]
+requires-python = ">=3.10"
+authors = [
+  {name = "Gijs Vermariën", email = "vermarien@strw.leidenuniv.nl"}
+]
+maintainers = [
+  {name = "Gijs Vermariën", email = "vermarien@strw.leidenuniv.nl"}
+]
+description = "A 3dpdr emulator"
+readme = "README.rst"
+license = {file = "LICENSE.txt"}
+keywords = ["Astronomy", "Astrochemistry", "Surrogate model", "NeuralODE"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python"
+]
+

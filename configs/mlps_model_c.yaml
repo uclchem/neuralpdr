@@ -1,0 +1,23 @@
+start_index: 0
+end_index: 300
+save_file_path: "mlps_c"
+batch_size: 48
+depth: 3
+width: 592
+dataset_path: "/home/gijsv/projects/emulating-3dpdr/3dpdr_dataset_8192.h5"
+# dataset_path: "/home/vermarien/data2/emulating-3dpdr/3dpdr_dataset_8192.h5"
+learning_rate: 0.0011269044339
+weight_scale: 1.2879740534129
+weight_truncation: 10.0
+shuffle_every_n_epochs: 1
+epochs_per_partial_timeseries: 50
+weight_decay: 0.0001274459152
+double_epochs_last_fraction: True
+learning_rate_scheme: "constant"
+timeseries_fractions:
+ - 0.33
+ - 0.67
+ - 1.0
+neptune_tags:
+  - "ablation"
+  - "no scheduler"

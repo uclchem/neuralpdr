@@ -1,0 +1,1 @@
+python src/neuralpdr/train.py --dataset_path /home/gijsv/projects/emulating-3dpdr/3dpdr_dataset_8192.h5 --batch_size 128 --learning_rate 1.4e-3 --depth 5 --width 500 --weight_scale 0.05 --weight_truncation 4.0 --epochs 150 --shuffle_every_n_epochs 1

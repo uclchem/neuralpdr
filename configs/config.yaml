@@ -1,0 +1,16 @@
+start_index: 0
+end_index: 300
+save_file_path: "results"
+batch_size: 32
+depth: 3
+width: 128
+# dataset_path: "3dpdr_dataset_8192.h5"
+dataset_path: "/home/vermarien/data2/emulating-3dpdr/3dpdr_dataset_8192.h5"
+learning_rate: 1.0E-3
+weight_scale: 0.1
+weight_truncation: 2.0
+shuffle_every_n_epochs: 1
+epochs_per_partial_timeseries: 100
+weight_decay: 1.0E-4
+double_epochs_last_fraction: False
+learning_rate_scheme: "constant"

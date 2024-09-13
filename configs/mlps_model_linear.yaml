@@ -1,0 +1,19 @@
+start_index: 0
+end_index: 300
+save_file_path: "mlps_linear"
+batch_size: 64
+depth: 1
+width: 512
+dataset_path: "3dpdr_dataset_8192.h5"
+# dataset_path: "/home/vermarien/data2/emulating-3dpdr/3dpdr_dataset_8192.h5"
+learning_rate: 1.0E-3
+weight_scale: 0.01
+weight_truncation: 6.0
+shuffle_every_n_epochs: 1
+epochs_per_partial_timeseries: 50
+weight_decay: 2.0E-3
+double_epochs_last_fraction: True
+learning_rate_scheme: "sgdr"
+neptune_tags :
+  - "Linear"
+  - "NEURIPSv3"
