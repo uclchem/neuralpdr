@@ -1,5 +1,7 @@
 # emulating-3dpdr
 
+If you want to learn more about this code or cite me, the paper can be found at: https://arxiv.org/abs/2412.00758
+
 In this project we try to emulate the Photodissociation Region (PDR) code 3D-PDR for 1D-dimensional uniform clouds, 
 the code solves the cooling, heating and chemistry as we move into a cloud (changing Av). 
 
