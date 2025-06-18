@@ -1,0 +1,9 @@
+data
+results
+*.pyc
+*.png
+*.json
+*.eqx
+power_usage.txt
+.neptune
+tmp

@@ -1,0 +1,15 @@
+chex
+diffrax
+equinox
+h5py
+jax
+jaxlib
+jaxtyping
+neptune
+numpy
+opt-einsum
+optax
+pandas
+PyYAML
+ray
+

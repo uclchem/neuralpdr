@@ -1,0 +1,69 @@
+# General configuration:
+save_file_path: "/home/gijsv/emulating-3dpdr/results_v3_bs_128/continue_epoch_20"
+neptune_project: "AutoChemulator/3dpdr-v3"
+# Data configuration
+# dataset_path: "/data2/vermarien/data/3d_pdr_dataset_v3/h5/step_split_1_smooth.h5"
+dataset_path: /projects/1/prjs1344/v3/step_split_1_smooth.h5
+input_features_file: "configs/input_features_v3.yaml"
+# normalisations_file: "configs/normalisations_split_1_250123.yaml"
+normalisations_file: "configs/normalisations_try.yaml"
+start_index: 0
+end_index: -1
+minimal_timeseries_length: 48
+aux_features: True
+train_split: 0.7
+val_split: 0.15
+test_split: 0.15
+training_batch_subsampling: 1.0
+
+# model configuration
+batch_size: 128
+enc_dec_depth: 3
+enc_dec_width: 512
+latent_depth: 3
+latent_width: 512
+latent_bottleneck: 128
+weight_scale: 1.0
+weight_truncation: 10.0
+latent_final_activation: "tanh"
+
+# Training configuration
+# learning_rate: 1.0E-4
+shuffle_every_n_epochs: 1
+epochs_per_partial_timeseries: 200
+weight_decay: 1.0E-4
+learning_schemes:
+  - timeseries_fraction: 32
+    epochs: 5
+    lr_scheduler: "sgdr"
+    warmup_epochs: 2
+    learning_rate: 5.0E-4
+  - timeseries_fraction: 64
+    epochs: 5
+    lr_scheduler: "sgdr"
+    warmup_epochs: 2
+    learning_rate: 5.0E-4
+  - timeseries_fraction: 128
+    epochs: 10
+    lr_scheduler: "sgdr"
+    warmup_epochs: 2
+    learning_rate: 5.0E-4
+  - timeseries_fraction: 256
+    epochs: 10
+    lr_scheduler: "sgdr"
+    warmup_epochs: 2
+    learning_rate: 5.0E-4
+  - timeseries_fraction: 512
+    epochs: 10
+    lr_scheduler: "sgdr"
+    warmup_epochs: 2
+    learning_rate: 5.0E-4
+  - timeseries_fraction: 1.0
+    epochs: 60
+    lr_scheduler: "sgdr"
+    warmup_epochs: 5
+    learning_rate: 5.0E-4
+
+# Checkpoints to use:
+checkpoint_file: "/home/gijsv/emulating-3dpdr/results_v3_bs_128/weights_epoch_20.eqx"
+checkpoint_epoch: 20
