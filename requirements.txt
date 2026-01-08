@@ -10,6 +10,7 @@ numpy
 opt-einsum
 optax
 pandas
+pytest
 PyYAML
 ray
 

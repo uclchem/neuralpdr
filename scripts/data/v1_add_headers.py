@@ -14,9 +14,10 @@ Example:
 """
 
 import sys
+from pathlib import Path
+
 import h5py
 import numpy as np
-from pathlib import Path
 from tqdm import tqdm
 
 # Header structure as specified
@@ -104,19 +105,30 @@ def add_v1_headers(input_path: str, output_path: str):
                     else model_id
                 )
 
+                # Get auxiliary parameters for this model
+                auxiliary_data = model_df[i]  # [radfield, density, zeta]
+
                 # Copy all data types for this model
                 for datatype in ["pdr", "heat", "cool", "line", "opdp", "spop"]:
                     dataset_name = f"{model_id_str}/{datatype}"
 
                     if dataset_name in f_in:
                         data = f_in[dataset_name][:]
+
+                        # For pdr dataset, append auxiliary features as repeated columns
+                        if datatype == "pdr":
+                            n_timesteps = data.shape[0]
+                            # Create repeated columns for auxiliary features
+                            aux_repeated = np.tile(auxiliary_data, (n_timesteps, 1))
+                            # Append to pdr data
+                            data = np.hstack([data, aux_repeated])
+
                         f_out.create_dataset(dataset_name, data=data, dtype="float32")
                     else:
                         print(f"Warning: {dataset_name} not found in input file")
 
                 # Add auxiliary data to each model (radfield_init, density_init, zeta_init)
                 # These are the initial conditions from model_df
-                auxiliary_data = model_df[i]  # [radfield, density, zeta]
                 f_out.create_dataset(
                     f"{model_id_str}/auxiliary", data=auxiliary_data, dtype="float32"
                 )
