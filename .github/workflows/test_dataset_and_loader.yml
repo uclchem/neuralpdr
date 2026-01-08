@@ -38,7 +38,7 @@ jobs:
     
     - name: Run tests
       run: |
-        python -m pytest tests/ -v --tb=short
+        python -m pytest tests/ -v --tb=short --junit-xml=test-results.xml
       env:
         # Tests will automatically use minimal datasets from data/test/ if available
         PYTHONPATH: ${{ github.workspace }}/src
@@ -48,7 +48,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
-        path: |
-          .pytest_cache/
-          test-*.xml
+        path: test-results.xml
         retention-days: 7
