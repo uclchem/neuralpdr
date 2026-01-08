@@ -1,0 +1,6 @@
+# Git LFS for large test datasets (optional)
+# If you enable Git LFS, these files will be stored efficiently
+data/test/*.h5 filter=lfs diff=lfs merge=lfs -text
+
+# Alternatively, if not using LFS, just commit them normally
+# The test datasets are small enough (~6 MB total) to commit directly
