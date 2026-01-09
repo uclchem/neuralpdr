@@ -6,10 +6,12 @@ jax
 jaxlib
 jaxtyping
 joblib
+matplotlib
 neptune
 numpy
 opt-einsum
 optax
+orbax
 pandas
 pytest
 PyYAML

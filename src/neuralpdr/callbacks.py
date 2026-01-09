@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from pathlib import Path
 
 import equinox as eqx
@@ -8,7 +7,8 @@ import jax
 import jax.numpy as jnp
 import neptune
 import orbax.checkpoint as ocp
-from plot import plot_batch
+
+from neuralpdr.plot import plot_batch
 
 try:
     from secret_api_key import NEPTUNE_API_TOKEN
@@ -92,7 +92,7 @@ class JaxProfiler:
         jax.profiler.stop_trace()
 
 
-class JaxProfiler:
+class CudaartProfiler:
     # "/sw/arch/RHEL9/EB_production/2024/software/CUDA/12.6.0/lib64/libcudart.so"
     def __init__(self, libcudart_path, start_epoch, end_epoch, start_step, end_step):
         from ctypes import cdll

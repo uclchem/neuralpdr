@@ -1,30 +1,22 @@
 # Standard imports
-import argparse
-from functools import partial
 import json
-import logging
 import os
-import subprocess
 from datetime import datetime
+from functools import partial
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable
 
-import chex
 import equinox as eqx
-import h5py
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import yaml
-from tqdm import tqdm
-
 from jax.experimental import mesh_utils
-from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from jax.experimental.shard_map import shard_map
+from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from neuralpdr.callbacks import (
-    Checkpointer,
     EarlyTerminate,
     NeptuneLogger,
     OneBatchPlotter,
@@ -39,9 +31,9 @@ from neuralpdr.data import (
     shuffle_and_split,
 )
 from neuralpdr.inference import checkpoint_deserializer
+from neuralpdr.model import EncoderEvolveDecoder
 from neuralpdr.parser import get_config, load_input_features
 from neuralpdr.utils import get_git_info, join_schedules
-from neuralpdr.model import EncoderEvolveDecoder
 
 jax.config.update("jax_traceback_in_locations_limit", -1)
 
@@ -134,7 +126,7 @@ def grad_loss(
         )
 
     out = loss_sharded(batch_iv, batch_data, batch_aux)
-    jax.debug.print("{out}", out=out)
+    # jax.debug.print("{out}", out=out)
     return out[0], out[1:8]
 
 
@@ -502,7 +494,7 @@ def main(args=None):
 
     # add callbacks for various things.
     save_weights_callback = SaveWeightCallback(save_file_path, args, 1)
-    plot_callback = OneBatchPlotter(save_file_path, 1)
+    plot_callback = OneBatchPlotter(save_file_path, args.get("plot_frequency", 1))
     early_terminate_callback = EarlyTerminate(100, patience=10)
     neptune_logger = NeptuneLogger(
         args["neptune_project"], args, tags=args.get("neptune_tags")

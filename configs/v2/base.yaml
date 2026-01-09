@@ -17,7 +17,7 @@ epochs_per_partial_timeseries: 200
 weight_decay: 1.0E-4
 double_epochs_last_fraction: False
 learning_rate_scheme: "sgdr"
-input_features_file: "configs/input_features_v2.yaml"
+input_features_file: "configs/v2/features/input_features.yaml"
 # normalisations_file: "configs/normalisations_v2.yaml"
 latent_bottleneck: 16
 aux_features: True

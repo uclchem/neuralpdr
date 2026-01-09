@@ -1,0 +1,39 @@
+start_index: 0
+end_index: 300
+save_file_path: mlps_b
+batch_size: 48
+dataset_path: /home/gijsv/projects/emulating-3dpdr/3dpdr_dataset_8192.h5
+learning_rate: 0.0011269044339
+weight_scale: 1.2879740534129
+weight_truncation: 10.0
+shuffle_every_n_epochs: 1
+weight_decay: 0.0
+input_features_file: configs/input_features_v1.yaml
+enc_dec_depth: 1
+latent_depth: 3
+enc_dec_width: 592
+latent_width: 592
+latent_bottleneck: 37
+latent_final_activation: tanh
+aux_features: true
+minimal_timeseries_length: 32
+train_split: 0.7
+val_split: 0.15
+test_split: 0.15
+training_batch_subsampling: 1.0
+learning_schemes:
+- timeseries_fraction: 0.33
+  epochs: 50
+  lr_scheduler: sgdr
+  warmup_epochs: 2
+  learning_rate: 0.0011269044339
+- timeseries_fraction: 0.67
+  epochs: 50
+  lr_scheduler: sgdr
+  warmup_epochs: 2
+  learning_rate: 0.0011269044339
+- timeseries_fraction: 1.0
+  epochs: 50
+  lr_scheduler: sgdr
+  warmup_epochs: 2
+  learning_rate: 0.0011269044339

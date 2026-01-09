@@ -118,7 +118,7 @@ class TestV1Dataset:
                 pytest.fail("No models found in v1")
 
             first_model = model_keys[0]
-            required_datasets = {"pdr", "auxiliary"}
+            required_datasets = {"pdr"}
             missing = required_datasets - set(f[first_model].keys())
             if missing:
                 pytest.fail(
@@ -247,7 +247,7 @@ class TestV3Dataset:
 
         with h5py.File(V3_TEST_PATH, "r") as f:
             header = [s.decode("utf-8") for s in f["header"][:]]
-            # v3 should have 8 physics + 31 species + potentially auxiliary = 39+ fields
+            # v3 should have 8 physics + 31 species + potentially auxiliary data = 39+ fields
             assert len(header) >= 39, (
                 f"Expected at least 39 header fields, got {len(header)}\n"
                 f"Regenerate test dataset: python scripts/data/create_test_datasets.py"

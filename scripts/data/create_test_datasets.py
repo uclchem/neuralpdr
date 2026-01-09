@@ -5,15 +5,23 @@ Create minimal versions of v1, v2, v3 datasets for testing in CI.
 This script extracts a small subset of models from each full dataset to create
 lightweight test datasets that can be committed to the repository.
 
+Note: In this codebase, 1 model (HDF5 group) = 1 training sample.
+Each model represents one simulation run.
+
 Usage:
-    python create_test_datasets.py
+    python create_test_datasets.py                    # Create with 10 models (default)
+    python create_test_datasets.py --n-models 128     # Create with 128 models
+    python create_test_datasets.py --n-models 5       # Create with 5 models
+    python create_test_datasets.py --skip-extra-data  # Skip species, keep header
+    python create_test_datasets.py --n-models 128 --skip-extra-data --enable-compression  # Minimal size
 
 Output:
-    data/test/3dpdr_dataset_v1_test.h5  (~10 models, ~5 MB)
-    data/test/3dpdr_dataset_v2_test.h5  (~10 models, ~5 MB)
-    data/test/3dpdr_dataset_v3_test.h5  (~10 models, ~5 MB)
+    data/test/3dpdr_dataset_v1_test.h5
+    data/test/3dpdr_dataset_v2_test.h5
+    data/test/3dpdr_dataset_v3_test.h5
 """
 
+import argparse
 from pathlib import Path
 
 import h5py
@@ -23,9 +31,6 @@ from tqdm import tqdm
 # Paths
 DATA_DIR = Path("data/processed")
 TEST_DIR = Path("data/test")
-
-# Number of models to include in test datasets
-N_TEST_MODELS = 10
 
 # Dataset configurations
 DATASETS = {
@@ -45,7 +50,11 @@ DATASETS = {
 
 
 def create_minimal_dataset(
-    input_path: Path, output_path: Path, n_models: int = N_TEST_MODELS
+    input_path: Path,
+    output_path: Path,
+    n_models: int,
+    skip_extra_data: bool = False,
+    enable_compression: bool = False,
 ):
     """
     Create a minimal version of a dataset with only n_models.
@@ -53,7 +62,9 @@ def create_minimal_dataset(
     Args:
         input_path: Path to full dataset
         output_path: Path to output minimal dataset
-        n_models: Number of models to extract
+        n_models: Number of models (training samples) to extract
+        skip_extra_data: If True, skip species and only copy pdr data from models (keeps header, model_ids, model_df)
+        enable_compression: If True, enable gzip compression for all datasets
     """
     if not input_path.exists():
         print(f"⚠️  Input file not found: {input_path}")
@@ -62,6 +73,10 @@ def create_minimal_dataset(
     print(f"\nCreating minimal dataset from {input_path.name}")
     print(f"  Output: {output_path}")
     print(f"  Models: {n_models}")
+    if skip_extra_data:
+        print("  Mode: PDR data + header, model_ids, model_df only (skip species)")
+    if enable_compression:
+        print("  Compression: Enabled (gzip)")
 
     # Create output directory
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,12 +89,21 @@ def create_minimal_dataset(
 
         print(f"  Total models in source: {len(model_keys)}")
 
-        # Select subset of models
+        # Select first n_models
         selected_models = model_keys[:n_models]
+        print(f"  Selected {len(selected_models)} models")
 
         with h5py.File(output_path, "w") as f_out:
             # Copy metadata
-            for meta_key in metadata_keys:
+            # Always copy model_ids and model_df for selected models
+            # Skip species if skip_extra_data is True (header is required by data loader)
+            keys_to_copy = (
+                metadata_keys
+                if not skip_extra_data
+                else {"model_ids", "model_df", "header", "species"}
+            )
+
+            for meta_key in keys_to_copy:
                 if meta_key in f_in:
                     data = f_in[meta_key][:]
 
@@ -100,30 +124,82 @@ def create_minimal_dataset(
                         data = np.array(selected_ids)
 
                     f_out.create_dataset(
-                        meta_key, data=data, dtype=f_in[meta_key].dtype
+                        meta_key,
+                        data=data,
+                        dtype=f_in[meta_key].dtype,
+                        compression="gzip" if enable_compression else None,
+                        compression_opts=9 if enable_compression else None,
                     )
 
             # Copy selected models
             for model_key in tqdm(selected_models, desc="Copying models"):
                 model_group = f_in[model_key]
 
-                # Copy all datasets/groups in this model
-                def copy_recursive(name, obj):
-                    if isinstance(obj, h5py.Dataset):
-                        full_name = f"{model_key}/{name}" if name else model_key
-                        f_out.create_dataset(full_name, data=obj[:], dtype=obj.dtype)
-                    elif isinstance(obj, h5py.Group):
-                        # Skip - groups are created automatically
-                        pass
+                if (
+                    skip_extra_data
+                    and isinstance(model_group, h5py.Group)
+                    and "pdr" in model_group
+                ):
+                    # Only copy the pdr subdirectory
+                    pdr_group = model_group["pdr"]
 
-                # Copy model group contents
-                if isinstance(model_group, h5py.Group):
-                    model_group.visititems(copy_recursive)
+                    if isinstance(pdr_group, h5py.Dataset):
+                        # pdr is a dataset itself
+                        f_out.create_dataset(
+                            f"{model_key}/pdr",
+                            data=pdr_group[:],
+                            dtype=pdr_group.dtype,
+                            compression="gzip" if enable_compression else None,
+                            compression_opts=9 if enable_compression else None,
+                        )
+                    else:
+                        # pdr is a group with sub-datasets
+                        def copy_pdr_recursive(name, obj):
+                            if isinstance(obj, h5py.Dataset):
+                                full_name = (
+                                    f"{model_key}/pdr/{name}"
+                                    if name
+                                    else f"{model_key}/pdr"
+                                )
+                                f_out.create_dataset(
+                                    full_name,
+                                    data=obj[:],
+                                    dtype=obj.dtype,
+                                    compression="gzip" if enable_compression else None,
+                                    compression_opts=9 if enable_compression else None,
+                                )
+                            elif isinstance(obj, h5py.Group):
+                                pass  # Groups are created automatically
+
+                        pdr_group.visititems(copy_pdr_recursive)
                 else:
-                    # It's a dataset itself
-                    f_out.create_dataset(
-                        model_key, data=model_group[:], dtype=model_group.dtype
-                    )
+                    # Copy all datasets/groups in this model
+                    def copy_recursive(name, obj):
+                        if isinstance(obj, h5py.Dataset):
+                            full_name = f"{model_key}/{name}" if name else model_key
+                            f_out.create_dataset(
+                                full_name,
+                                data=obj[:],
+                                dtype=obj.dtype,
+                                compression="gzip" if enable_compression else None,
+                                compression_opts=9 if enable_compression else None,
+                            )
+                        elif isinstance(obj, h5py.Group):
+                            # Skip - groups are created automatically
+                            pass
+
+                    # Copy model group contents
+                    if isinstance(model_group, h5py.Group):
+                        model_group.visititems(copy_recursive)
+                    else:
+                        # It's a dataset itself
+                        f_out.create_dataset(
+                            model_key,
+                            data=model_group[:],
+                            dtype=model_group.dtype,
+                            compression="gzip" if enable_compression else None,
+                            compression_opts=9 if enable_compression else None,
+                        )
 
     # Check output file size
     size_mb = output_path.stat().st_size / (1024 * 1024)
@@ -134,15 +210,48 @@ def create_minimal_dataset(
 
 def main():
     """Create minimal test datasets for all versions."""
+    parser = argparse.ArgumentParser(
+        description="Create minimal test datasets from full datasets",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--n-models",
+        type=int,
+        default=10,
+        help="Number of models to include in test datasets",
+    )
+    parser.add_argument(
+        "--skip-extra-data",
+        action="store_true",
+        help="Skip species, only copy pdr data from models (keeps header, model_ids, model_df)",
+    )
+    parser.add_argument(
+        "--enable-compression",
+        action="store_true",
+        help="Enable gzip compression (level 9) for all datasets to minimize file size",
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
     print("Creating Minimal Test Datasets")
+    print("=" * 60)
+    print(f"Number of models: {args.n_models}")
+    if args.skip_extra_data:
+        print("Mode: PDR data only (skip species, keep header, model_ids, model_df)")
+    if args.enable_compression:
+        print("Compression: Enabled (gzip level 9)")
     print("=" * 60)
 
     success_count = 0
 
+    # Create test datasets
     for version, config in DATASETS.items():
         success = create_minimal_dataset(
-            config["input"], config["output"], N_TEST_MODELS
+            config["input"],
+            config["output"],
+            args.n_models,
+            args.skip_extra_data,
+            args.enable_compression,
         )
         if success:
             success_count += 1
@@ -152,12 +261,22 @@ def main():
     print("=" * 60)
 
     if success_count > 0:
-        print("\nTest datasets can now be committed to the repository:")
+        print("\nTest datasets created:")
+        print(f"  {args.n_models} models per dataset: data/test/*_test.h5")
+        print("\nThese can be committed to the repository:")
         print("  git add data/test/*.h5")
-        print("  git commit -m 'Add minimal test datasets for CI'")
-        print("\nTo use in tests, update paths:")
+        print("  git commit -m 'Add test datasets for CI'")
+        print("\nTo use in tests:")
+        print("  dataset_path = 'data/test/3dpdr_dataset_v3_test.h5'")
+        print("\nTo create different sizes:")
         print(
-            "  V1_TEST_PATH = Path(__file__).parent.parent / 'data' / 'test' / '3dpdr_dataset_v1_test.h5'"
+            "  python create_test_datasets.py --n-models 128  # For ultra-fast testing"
+        )
+        print("  python create_test_datasets.py --n-models 5    # For minimal testing")
+        print("\nTo create minimal datasets (PDR data only):")
+        print("  python create_test_datasets.py --n-models 128 --skip-extra-data")
+        print(
+            "  python create_test_datasets.py --n-models 128 --skip-extra-data --enable-compression  # Smallest size"
         )
 
 
