@@ -10,9 +10,57 @@ this chemistry. Taking densities (constant), cosmic ray ionisations (constant), 
 as additional parameters and the chemical abundances and temperatures as normal features. 
 
 # Usage
-After downloading the datasets (listed below), the code can be trained using `python src/neuralpdr/train.py CONFIGURATION_YAML`, after training, you can refer the results using `python src/neuralpdr/inference.py  --dataset_path $DATASET_PATH --model_dir $MODEL_DIRECTORY --weights_file WEIGHTS_TO_USE`
 
-In order to use the Neptune callback, please provide your neptune key as `"NEPTUNE_API_TOKEN= ...` in secret_api_key.py.
+## Dataset Preparation
+Download the datasets from Zenodo (links below) and place them in `data/zenodo/` following this structure:
+```
+data/zenodo/
+├── v1/3pdr_dataset_8192.h5
+├── v2/simulations.tgz
+└── v3/3dpdr_dataset_v3.h5
+```
+
+Process the raw datasets into training-ready format by running the header processing scripts:
+```bash
+# Process all datasets
+./scripts/data/workflow_setup_all.sh
+
+# Or process individually
+python scripts/data/v1_add_headers.py   # for v1
+./scripts/data/workflow_v2.sh           # for v2
+./scripts/data/workflow_v3.sh           # for v3 
+```
+
+This creates processed HDF5 files in `data/processed/`:
+```
+data/processed/
+├── 3dpdr_dataset_v1.h5
+├── 3dpdr_dataset_v2.h5
+└── 3dpdr_dataset_v3.h5
+```
+
+The datasets correspond to different cloud models: v1 (uniform 1D clouds), v2 (varying density clouds), v3 (3D giant molecular cloud).
+
+Alternatively, use the test datasets in `data/test/` for quick validation without downloading the full Zenodo datasets.
+
+## Training
+Train the model using a configuration file from `configs/`. Example configurations are provided for each dataset version in `configs/v1/`, `configs/v2/`, and `configs/v3/`.
+
+```bash
+python src/neuralpdr/train.py configs/v2/base.yaml
+```
+
+Model checkpoints and logs are saved to the directory specified in the configuration file.
+
+## Inference
+Run inference on a trained model by specifying the dataset, model directory, and weights file:
+
+```bash
+python src/neuralpdr/inference.py --dataset_path data/processed/3dpdr_dataset_v2.h5 --model_dir runs/model_name --weights_file best_weights.pkl
+```
+
+## Neptune Callback (Deprecated)
+**Note:** Neptune will be deprecated as of March 2026, so its call will stop functioning and soon be removed from the codebase.
 
 # Datasets
 The first dataset can be found on Zenodo: https://doi.org/10.5281/zenodo.13711173
