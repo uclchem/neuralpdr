@@ -19,7 +19,7 @@ TEST_DATASETS = {
 }
 
 BASE_CONFIGS = {
-    "v1": PROJECT_ROOT / "configs" / "v1" / "paper_archived" / "mlps_model_1.yaml",
+    "v1": PROJECT_ROOT / "configs" / "v1" / "ml4ps_paper" / "mlps_model_1.yaml",
     "v2": PROJECT_ROOT / "configs" / "v2" / "base.yaml",
     "v3": PROJECT_ROOT / "configs" / "v3" / "base.yaml",
 }
