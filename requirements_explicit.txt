@@ -23,4 +23,4 @@ opt-einsum==3.3.0
 optax==0.2.3
 pandas==2.2.2
 PyYAML==6.0.2
-ray==2.34.0
+ray==2.53.0
