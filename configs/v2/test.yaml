@@ -25,7 +25,8 @@ timeseries_fractions:
 latent_bottleneck: 16
 aux_features: True
 minimal_timeseries_length: 32
-train_split: 0.7
-val_split: 0.15
-test_split: 0.15
+train_test_val_split:
+  train: 0.7
+  validate: 0.15
+  test: 0.15
 training_batch_subsampling: 1.0

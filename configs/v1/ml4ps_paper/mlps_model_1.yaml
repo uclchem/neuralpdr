@@ -17,9 +17,10 @@ latent_bottleneck: 32
 latent_final_activation: tanh
 aux_features: true
 minimal_timeseries_length: 32
-train_split: 0.7
-val_split: 0.15
-test_split: 0.15
+train_test_val_split:
+  train: 0.7
+  validate: 0.15
+  test: 0.15
 training_batch_subsampling: 1.0
 learning_schemes:
 - timeseries_fraction: 0.33

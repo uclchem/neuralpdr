@@ -11,6 +11,8 @@ version = "2024.9.6"
 dependencies = [
     "jax",
     "numpy",
+    "pydantic",
+    "tomli; python_version < '3.11'",
 ]
 requires-python = ">=3.10"
 authors = [
