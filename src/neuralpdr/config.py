@@ -9,7 +9,6 @@ else:
     import tomli as tomllib
 
 from pydantic import Field, TypeAdapter
-import yaml
 
 LearningScheduler: TypeAlias = Literal["sgdr", "constant"]
 Activation: TypeAlias = Literal["tanh"]
@@ -63,9 +62,6 @@ class Conf:
 def read_conf(path: str | Path):
     path = Path(path)
     match path.suffix:
-        case ".yaml":
-            with open(path) as fh:
-                parsed = yaml.safe_load(fh)
         case ".toml":
             parsed = tomllib.loads(path.read_text())
         case _:
