@@ -25,11 +25,11 @@ class Split:
 
 @dataclass(frozen=True)
 class LearningScheme:
-    timeseries_fraction: float
-    epochs: int
     lr_scheduler: LearningScheduler
-    warmup_epochs: int
+    epochs: int
     learning_rate: float
+    warmup_epochs: int = Field(default=0)
+    timeseries_fraction: float = Field(default=1.0)
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ class Conf:
     save_file_path: Path
     dataset_path: Path
     input_features_file: Path  # FIXME: should this be in config, or data?
-    learning_schemes: list[LearningScheme] = Field(default_factory=list)
+    learning_schemes: list[LearningScheme]
     double_epochs_last_fraction: bool = False
 
 
