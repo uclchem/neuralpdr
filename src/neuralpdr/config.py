@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from pydantic.dataclasses import dataclass
 from pathlib import Path
 import sys
 from typing import Literal, TypeAlias
@@ -23,7 +23,7 @@ class Split:
     test: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class LearningScheme:
     timeseries_fraction: float
     epochs: int
@@ -32,7 +32,7 @@ class LearningScheme:
     learning_rate: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class Conf:
     start_index: int
     end_index: int
