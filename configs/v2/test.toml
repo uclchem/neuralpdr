@@ -1,0 +1,29 @@
+start_index = 0
+end_index = 498
+save_file_path = "results3"
+batch_size = 32
+enc_dec_depth = 4
+enc_dec_width = 64
+latent_depth = 4
+latent_width = 64
+latent_final_activation = "tanh"
+dataset_path = "/home/vermarien/data2/emulating-3dpdr/3dpdr_dataset_v2.h5"
+learning_rate = 0.001
+weight_scale = 0.001
+weight_truncation = 4.0
+shuffle_every_n_epochs = 1
+epochs_per_partial_timeseries = 200
+weight_decay = 0.0001
+double_epochs_last_fraction = true
+learning_rate_scheme = "sgdr"
+input_features_file = "configs/v2/features/input_features.yaml"
+timeseries_fractions = [0.33, 0.67, 1.0]
+latent_bottleneck = 16
+aux_features = true
+minimal_timeseries_length = 32
+training_batch_subsampling = 1.0
+
+[train_test_val_split]
+train = 0.7
+validate = 0.15
+test = 0.15
