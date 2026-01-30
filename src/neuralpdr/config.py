@@ -1,26 +1,35 @@
-from pydantic.dataclasses import dataclass
+from dataclasses import asdict
 from pathlib import Path
 import sys
-from typing import Literal, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
 if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
 
-from pydantic import Field, TypeAdapter
+from pydantic import Field, TypeAdapter, model_validator
+from pydantic.dataclasses import dataclass
 
 LearningScheduler: TypeAlias = Literal["sgdr", "constant"]
 Activation: TypeAlias = Literal["tanh"]
+ModelTypes: TypeAlias = Literal["latent", "fno"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Split:
     """The splits should normalise to unity."""
 
     train: float
     validate: float
     test: float
+
+    @model_validator(mode="after")
+    def normalise(self):
+        if abs(self.train + self.validate + self.test - 1) <= 1e-6:
+            return self
+        else:
+            raise ValueError(f"{asdict(self)} does not normalise to 1")
 
 
 @dataclass(frozen=True)
@@ -33,20 +42,15 @@ class LearningScheme:
 
 
 @dataclass(frozen=True)
-class Conf:
+class _Base:
     start_index: int
     end_index: int
     batch_size: int
-    learning_rate: float
     weight_scale: float
     weight_decay: float
     weight_truncation: float
     enc_dec_depth: int
     enc_dec_width: int
-    latent_depth: int
-    latent_width: int
-    latent_bottleneck: int
-    latent_final_activation: Activation
     minimal_timeseries_length: int
     train_test_val_split: Split
     training_batch_subsampling: float
@@ -54,9 +58,30 @@ class Conf:
     aux_features: bool
     save_file_path: Path
     dataset_path: Path
-    input_features_file: Path  # FIXME: should this be in config, or data?
+    input_features_file: Path
     learning_schemes: list[LearningScheme]
+
+
+@dataclass(frozen=True)
+class Latent(_Base):
+    depth: int
+    width: int
+    bottleneck: int
+    final_activation: Activation
     double_epochs_last_fraction: bool = False
+    model: Literal["latent"] = "latent"
+
+
+@dataclass(frozen=True)
+class FNO(_Base):
+    depth: int
+    width: int
+    spectrum: list[float]
+    double_epochs_last_fraction: bool = False
+    model: Literal["fno"] = "fno"
+
+
+Conf: TypeAlias = Annotated[Latent | FNO, Field(discriminator="model")]
 
 
 def read_conf(path: str | Path):
