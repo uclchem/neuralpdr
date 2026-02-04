@@ -84,12 +84,29 @@ class FNO(_Base):
 Conf: TypeAlias = Annotated[Latent | FNO, Field(discriminator="model")]
 
 
-def read_conf(path: str | Path):
-    path = Path(path)
+def _read_toml(path: Path) -> dict:
     match path.suffix:
         case ".toml":
-            parsed = tomllib.loads(path.read_text())
+            return tomllib.loads(path.read_text())
         case _:
             raise RuntimeError(f"{path.suffix}: unsupported file format {path!r}")
 
+
+def read_conf(path: str | Path):
+    path = Path(path)
+    parsed = _read_toml(path)
     return TypeAdapter(Conf).validate_python(parsed)
+
+
+@dataclass(frozen=True)
+class Features:
+    iv: str
+    data: list[str]
+    aux: list[str]
+
+
+def read_feature_list(path: Path):
+    if not path.exists():
+        raise RuntimeError(f"{path}: missing features file")
+    parsed = _read_toml(path)
+    return TypeAdapter(Features).validate_python(parsed)
