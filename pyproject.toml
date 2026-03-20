@@ -2,19 +2,9 @@
 requires = ["setuptools >= 61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
 [project]
 name = "neuralpdr"
 version = "2024.9.6"
-dependencies = [
-    "jax",
-    "numpy",
-    "pydantic",
-    "tomli; python_version < '3.11'",
-]
-requires-python = ">=3.10"
 authors = [
   {name = "Gijs Vermariën", email = "vermarien@strw.leidenuniv.nl"}
 ]
@@ -29,4 +19,32 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python"
 ]
+requires-python = ">=3.10,<3.14" # for ray
+dependencies = [
+    "PyYAML",
+    "chex",
+    "diffrax",
+    "equinox",
+    "h5py",
+    "jax",
+    "jax",
+    "jaxlib",
+    "jaxtyping",
+    "joblib",
+    "matplotlib",
+    "neptune",
+    "numpy",
+    "numpy",
+    "opt-einsum",
+    "optax",
+    "orbax",
+    "pandas",
+    "pydantic",
+    "pytest",
+    "ray",
+    "tomli; python_version < '3.11'",
+    "tqdm",
+]
 
+[tool.setuptools.packages.find]
+where = ["src"]
