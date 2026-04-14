@@ -74,7 +74,6 @@ SPEC = PartitionSpec("batch")
 sharding = NamedSharding(MESH, SPEC)  # naming axes of the sharded partition
 # replicated = NamedSharding(mesh, P())
 
-
 # Potential debugging mode
 # logging.basicConfig(level=logging.DEBUG)
 
@@ -261,20 +260,34 @@ def do_epoch(
         # Initialize the sharding if needed:
         if sharding:
             iv, data, aux = jax.device_put((iv, data, aux), sharding)
-        (
-            train_value,
-            mlp,
-            opt_state,
-            nan_count,
-            solver_steps_min,
-            solver_steps_med,
-            solver_steps_max,
-            rollout_loss,
-            latent_loss,
-            auto_loss,
-        ) = make_step(
-            mlp, optim, opt_state, iv, data, aux, multi_objective_scheduler(epoch)
-        )
+        if multi_objective_scheduler is None:
+            (
+                train_value,
+                mlp,
+                opt_state,
+                nan_count,
+                solver_steps_min,
+                solver_steps_med,
+                solver_steps_max,
+                rollout_loss,
+                latent_loss,
+                auto_loss,
+            ) = make_step(mlp, optim, opt_state, iv, data, aux)
+        else:
+            (
+                train_value,
+                mlp,
+                opt_state,
+                nan_count,
+                solver_steps_min,
+                solver_steps_med,
+                solver_steps_max,
+                rollout_loss,
+                latent_loss,
+                auto_loss,
+            ) = make_step(
+                mlp, optim, opt_state, iv, data, aux, multi_objective_scheduler(epoch)
+            )
         # Save the loss for this batch
         if not jnp.isnan(train_value):
             train_losses = train_losses.at[step].set(train_value)
@@ -323,8 +336,8 @@ def train(
     fracs: list[float],
     train_loader: PDRLoader,
     val_loader: PDRLoader,
-    shuffle_every_n_epochs: int = None,
-    save_file_path: Path = None,
+    shuffle_every_n_epochs: int | None = None,
+    save_file_path: Path | None = None,
     optim: optax.GradientTransformation = None,
     multi_objective_loss_scheduler: Callable = None,
     callbacks={},
@@ -350,6 +363,7 @@ def train(
     epoch_checkpoints_a = [1] + list(np.cumsum(epochs, dtype=int)[:-1] + 1)
     epoch_checkpoints_b = list(np.cumsum(epochs, dtype=int))
 
+    train_loss, val_loss = 0.0, 0.0
     for frac, epoch_a, epoch_b in zip(fracs, epoch_checkpoints_a, epoch_checkpoints_b):
         train_loader.set_timeseries_fraction(frac)
         val_loader.set_timeseries_fraction(frac)
