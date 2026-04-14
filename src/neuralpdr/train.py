@@ -44,7 +44,7 @@ from neuralpdr.data import (
 )
 from neuralpdr.inference import checkpoint_deserializer
 from neuralpdr.model import EncoderEvolveDecoder
-from neuralpdr.utils import get_git_info, join_schedules
+from neuralpdr.utils import join_schedules
 
 jax.config.update("jax_traceback_in_locations_limit", -1)
 
@@ -427,8 +427,8 @@ def main(conf: Latent | FNO):
     else:
         normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
 
-    # After parameters are set, get the information of the git repository.
-    conf.update(get_git_info())
+    # # After parameters are set, get the information of the git repository.
+    # conf.update(get_git_info())
 
     # Load the dataframe with each of the model parameters.
     model_indices: list[str] = text_from_h5(dataset_path, "model_ids")
@@ -495,18 +495,18 @@ def main(conf: Latent | FNO):
     save_weights_callback = SaveWeightCallback(save_file_path, conf, 1)
     plot_callback = OneBatchPlotter(save_file_path, 1)  # plot_frequency
     early_terminate_callback = EarlyTerminate(100, patience=10)
-    neptune_logger = NeptuneLogger(
-        conf["neptune_project"], conf, tags=conf.get("neptune_tags")
-    )
+    # neptune_logger = NeptuneLogger(
+    #     conf["neptune_project"], conf, tags=conf.get("neptune_tags")
+    # )
 
     callbacks = {
         "batch_start": [],
-        "batch_end": [neptune_logger],
+        # "batch_end": [neptune_logger],
         "epoch_end": [
             save_weights_callback,
             plot_callback,
             early_terminate_callback,
-            neptune_logger,
+            # neptune_logger,
         ],
     }
 
