@@ -2,16 +2,30 @@
 import argparse
 import json
 import os
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 import equinox as eqx
 import h5py
 import jax
+from jaxtyping import Array, ArrayLike
 import numpy as np
-import yaml
 from tqdm import tqdm
 
+from neuralpdr.config import (
+    AUXNorm,
+    Activation,
+    DataMetadata,
+    DataNorm,
+    Features,
+    IVNorm,
+    Latent,
+    Norms,
+    read_conf,
+    read_as,
+)
 from neuralpdr.data import (
     PDRLoader,
     log_semi_sorter,
@@ -33,15 +47,6 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "1.0"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 
-# from neuralpdr.train import load_input_features
-
-
-def load_input_features(input_features_file):
-    with open(input_features_file, "r") as fh:
-        input_features = yaml.safe_load(fh)
-    return input_features
-
-
 # Jax backend
 jax.config.update("jax_platform_name", "gpu")
 # Enable double precision for greater numerical stability solving the ODEs
@@ -55,6 +60,11 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 # Potential debugging mode
 # logging.basicConfig(level=logging.DEBUG)
+
+_ACTIVATION: dict[Activation, Callable[[ArrayLike], Array]] = {
+    "tanh": jax.nn.tanh,
+    "softplus": jax.nn.softplus,
+}
 
 
 @eqx.filter_jit
@@ -72,27 +82,27 @@ def make_predictions(mlp, batch_iv, batch_data, batch_aux):
 
 
 def checkpoint_deserializer(hyperparameters_path, weights_path):
-    with open(hyperparameters_path, "rb") as fh:
-        hp = json.loads(fh.read())
+    match read_conf(hyperparameters_path):
+        case Latent() as hp:
+            ...
+        case _c:
+            raise RuntimeError(f"{type(_c)}: unsupported config for inference")
 
+    input_features = read_as(hp.input_features_file, Features)
     key = jax.random.PRNGKey(0)
     mlp_key, enc_key, dec_key = jax.random.split(key, 3)
-    latent_final_activation = {"tanh": jax.nn.tanh, "softplus": jax.nn.softplus}[
-        hp["latent_final_activation"]
-    ]
-
     dummy_model = EncoderEvolveDecoder(
-        hp["input_features"]["data"],
-        hp["enc_dec_width"],
-        hp["enc_dec_depth"],
-        hp["latent_width"],
-        hp["latent_depth"],
-        hp["weight_scale"],
-        hp["weight_truncation"],
+        input_features.data,
+        hp.enc_dec_width,
+        hp.enc_dec_depth,
+        hp.width,
+        hp.depth,
+        hp.weight_scale,
+        hp.weight_truncation,
         keys=[mlp_key, enc_key, dec_key],
-        latent_bottleneck=hp["latent_bottleneck"],
-        n_aux_features=len(hp["input_features"]["aux"]),
-        latent_final_activation=latent_final_activation,
+        latent_bottleneck=hp.bottleneck,
+        n_aux_features=len(input_features.aux),
+        latent_final_activation=_ACTIVATION[hp.final_activation],
     )
 
     with open(weights_path, "rb") as fh:
@@ -117,25 +127,25 @@ def get_parser():
     return parser.parse_args()
 
 
-def main(args=None):
-    dataset_path = Path(args["dataset_path"])
-    data_configuration = Path(args["model_dir"]) / "data_metadata.json"
-    model_configuration = Path(args["model_dir"]) / "hyperparameters.json"
-    model_weights_path = Path(args["model_dir"]) / args["weights_file"]
+def main(opts: argparse.Namespace):
+    dataset_path = Path(opts.dataset_path)
+    data_configuration = Path(opts.model_dir) / "data_metadata.json"
+    model_configuration = Path(opts.model_dir) / "hyperparameters.json"
+    if Path(opts.weights_file).exists():
+        model_weights_path = opts.weights_file
+    else:
+        model_weights_path = Path(opts.model_dir) / opts.weights_file
 
     mlp, hyperparameters = checkpoint_deserializer(
         model_configuration, model_weights_path
     )
 
-    input_features = load_input_features(hyperparameters["input_features_file"])
+    input_features = read_as(hyperparameters.input_features_file, Features)
 
-    normalization_parameters = {"iv": {}, "data": {}, "aux": {}}
-    if "normalisations_file" in hyperparameters:
-        with open(hyperparameters["normalisations_file"], "r") as fh:
-            normalization_parameters = yaml.safe_load(fh)
-
-    with open(hyperparameters["input_features_file"], "r") as fh:
-        input_features = yaml.safe_load(fh)
+    if hyperparameters.normalisations_file:
+        normalization_parameters = read_as(hyperparameters.normalisations_file, Norms)
+    else:
+        normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
 
     # model_indices = text_from_h5(dataset_path, "model_ids")
     # model_df.columns = ["zeta_init", "radfield_init", "density_init"]
@@ -146,11 +156,10 @@ def main(args=None):
     # )
 
     # Add a small epsilon to the visual extinction to avoid log errors
-    with open(data_configuration, "r") as fh:
-        data_metadata = json.loads(fh.read())
-    train_keys = data_metadata["train_indices"]
-    val_keys = data_metadata["val_indices"]
-    test_keys = data_metadata["test_indices"]
+    data_metadata = read_as(data_configuration, DataMetadata)
+    train_keys = data_metadata.train_indices
+    val_keys = data_metadata.val_indices
+    test_keys = data_metadata.test_indices
 
     # In order to not eat all memory with preds, we load everything in batches:
 
@@ -162,30 +171,30 @@ def main(args=None):
     with h5py.File(dataset_path, "r") as fh_data:
         data_header = [s.decode("utf8") for s in fh_data["header"]]
         prediction_original_indices = {
-            feature: data_header.index(feature) for feature in input_features["data"]
+            feature: data_header.index(feature) for feature in input_features.data
         }
         with h5py.File(savepath, "w") as fh_save:
             for key_split in keys_splits:
                 dataloader = PDRLoader(
                     dataset_path=dataset_path,
-                    independent_variable=input_features["iv"],
-                    data_features=input_features["data"],
-                    auxiliary_features=input_features["aux"],
-                    index_range=[
-                        hyperparameters["start_index"],
-                        hyperparameters["end_index"],
-                    ],
+                    independent_variable=input_features.iv,
+                    data_features=input_features.data,
+                    auxiliary_features=input_features.aux,
+                    index_range=(
+                        hyperparameters.start_index,
+                        hyperparameters.end_index,
+                    ),
                     model_indices=list(key_split),  # test_keys[:1024],
                     # model_indices=hyperparameters["val_indices"],
                     batch_size=128,
                     stage="val",
-                    independent_variable_normalization_kwargs=normalization_parameters[
-                        "iv"
-                    ],
-                    features_normalization_kwargs=normalization_parameters["data"],
-                    auxiliary_features_normalization_kwargs=normalization_parameters[
-                        "aux"
-                    ],
+                    independent_variable_normalization_kwargs=asdict(
+                        normalization_parameters.iv
+                    ),
+                    features_normalization_kwargs=asdict(normalization_parameters.data),
+                    auxiliary_features_normalization_kwargs=asdict(
+                        normalization_parameters.aux
+                    ),
                     collate_fn=pad_and_stack,
                     batch_permutation_function=log_semi_sorter,  # lambda x, y: x,  # do not shuffle
                     use_cache=False,
@@ -221,7 +230,7 @@ def main(args=None):
                 counter = 0
                 for model_key, model_data in outputs_per_model.items():
                     # Original dataset:
-                    original_pdr = fh_data[model_key + "/pdr"][:]
+                    original_pdr: np.ndarray = fh_data[model_key + "/pdr"][:]
                     fh_save.create_dataset(
                         str(model_key) + "/pdr",
                         data=original_pdr,
@@ -272,11 +281,16 @@ def main(args=None):
             # Save the normalisation parameters
             fh_save.create_dataset("metadata", data=np.array([]))
 
-            fh_save["metadata"].attrs["data_metadata"] = yaml.dump(data_metadata)
-            fh_save["metadata"].attrs["hyperparameters"] = yaml.dump(hyperparameters)
+            fh_save["metadata"].attrs["data_metadata"] = json.dumps(
+                asdict(data_metadata)
+            )
+            fh_save["metadata"].attrs["hyperparameters"] = json.dumps(
+                asdict(hyperparameters)
+            )
 
     print(f"Pure inference time was: {inference_time}")
 
 
 if __name__ in "__main__":
-    main(vars(get_parser()))
+    parser = get_parser()
+    main(parser)
