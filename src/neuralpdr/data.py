@@ -33,7 +33,7 @@ class PDRLoader:
         independent_variable: str,
         data_features: list[str],
         auxiliary_features: list[str],
-        index_range: tuple[int],
+        index_range: tuple[int, int],
         model_indices: list[str],
         model_df: pd.DataFrame = None,
         batch_size: int = 16,
@@ -173,10 +173,10 @@ class PDRLoader:
         """Load data from disk into memory."""
         NEED_TO_LOAD = True
         # Load the data from the dataset
+        cache_path = Path(
+            f"{self.dataset_path.with_suffix('')}_{self.stage}_{len(self.model_indices)}.pickle"
+        )
         if self.use_cache:
-            cache_path = Path(
-                f"{self.dataset_path.with_suffix('')}_{self.stage}_{len(self.model_indices)}.pickle"
-            )
             if cache_path.exists():
                 for a in tqdm((range(1))):
                     print("Trying to use cache files")
