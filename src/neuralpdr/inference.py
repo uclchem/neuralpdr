@@ -137,7 +137,7 @@ def main(args=None):
     with open(hyperparameters["input_features_file"], "r") as fh:
         input_features = yaml.safe_load(fh)
 
-    # model_indices = h5py_load(dataset_path, "model_ids", text=True)
+    # model_indices = text_from_h5(dataset_path, "model_ids")
     # model_df.columns = ["zeta_init", "radfield_init", "density_init"]
 
     # # Only select models that are longer than 32 timesteps.

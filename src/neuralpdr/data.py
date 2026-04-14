@@ -16,14 +16,14 @@ from scipy.interpolate import make_smoothing_spline
 from tqdm import tqdm
 
 
-def h5py_load(dataset_path, key, return_dataframe=False, columns=None, text=False):
-    with h5py.File(dataset_path, "r") as f:
-        data = f[key][:]
-    if text:
-        data = [i.decode("utf-8") for i in data]
-    if return_dataframe:
-        data = pd.DataFrame(data, columns=columns)
-    return data
+def text_from_h5(dataset_path: str | Path, key: str) -> list[str]:
+    with h5py.File(str(dataset_path), "r") as h5f:
+        return [i.decode("utf-8") for i in h5f[key][:]]
+
+
+def df_from_h5(dataset_path: str | Path, key: str, columns=None) -> pd.DataFrame:
+    with h5py.File(str(dataset_path), "r") as h5f:
+        return pd.DataFrame(h5f[key][:], columns=columns)
 
 
 class PDRLoader:
@@ -90,12 +90,12 @@ class PDRLoader:
         self.dynamic_end_index = None
 
         if not self.model_indices:
-            self.model_indices = h5py_load(dataset_path, "model_ids", text=True)
+            self.model_indices = text_from_h5(dataset_path, "model_ids")
             if self.load_first_n_keys:
                 self.model_indices = self.model_indices[: self.load_first_n_keys]
         # if self.subsample_function:
         #     self.model_indices = self.subsample_function(dataset_path, self.model_indices)
-        self.data_header: list[str] = h5py_load(dataset_path, "header", text=True)
+        self.data_header: list[str] = text_from_h5(dataset_path, "header")
         self.index_independent_variable: list[int] = self.get_indices_from_header(
             self.data_header, [independent_variable]
         )
