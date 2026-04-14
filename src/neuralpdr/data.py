@@ -1,6 +1,8 @@
+from functools import reduce
 import gc
 import json
 import logging
+from operator import eq
 import pickle
 from pathlib import Path
 from typing import Union
@@ -180,9 +182,9 @@ class PDRLoader:
                     with open(cache_path, "rb") as fh:
                         pickle_dict = pickle.load(fh)
                         model_indices = pickle_dict["model_indices"]
-                        assert model_indices == self.model_indices, (
-                            "The model indices in the cache do not match the model indices in the dataset"
-                        )
+                        if model_indices != self.model_indices:
+                            msg = "The model indices in the cache do not match the model indices in the dataset"
+                            raise RuntimeError(msg)
                         self.independent_data_by_model = pickle_dict[
                             "independent_data_by_model"
                         ]
@@ -238,24 +240,24 @@ class PDRLoader:
 
     def normalize(
         self,
-        dataset: list[np.array],
+        dataset: list[np.ndarray],
         type: str,
-        mean: Union[float, np.array] = None,
-        std: Union[float, np.array] = None,
-        eps: Union[float, np.array] = 1e-20,
+        mean: float | np.ndarray | None = None,
+        std: float | np.ndarray | None = None,
+        eps: float | np.ndarray | None = 1e-20,
     ):
         """Add a small epsilon, log transform it and then standardize it
 
         Args:
-            dataset (list[np.array]): List of numpy arrays to normalize
+            dataset (list[np.ndarray]): List of numpy arrays to normalize
             type (str, optional): Choose between normalizing "data", "aux" or "iv".
-            mean (Union[float, np.array], optional): Mean for standardization, must either be scalar or the same shape as the last dimension of the data
-            std (float, optional): Standard deviation for standardization, must either be scalar or the same shape as the last dimension of the data
-            eps (float, optional): Small epsilon to add to the data. Defaults to 1e-20.
+            mean (float | np.ndarray, optional): Mean for standardization, must either be scalar or the same shape as the last dimension of the data
+            std (float| np.ndarray, optional): Standard deviation for standardization, must either be scalar or the same shape as the last dimension of the data
+            eps (float| np.ndarray, optional): Small epsilon to add to the data. Defaults to 1e-20.
         """
-        assert (mean is None) == (std is None), (
-            "Either both mean and std must be provided or neither."
-        )
+        if (mean is None and std is not None) or (mean is not None and std is None):
+            raise RuntimeError("Either both mean and std must be provided or neither.")
+
         if mean is None:
             statistics_shape = {
                 "data": (len(dataset), self.n_data_features),
@@ -515,15 +517,14 @@ def shuffle_and_split(
     Returns:
         tuple[list[str], list[str], list[str]]: The list of model indices for the training, validation and test sets
     """
-    assert df is not None or model_indices is not None, (
-        "Either a dataframe or a list of model indices must be provided"
-    )
+    if df is None and model_indices is None:
+        msg = "Either a dataframe or a list of model indices must be provided"
+        raise RuntimeError(msg)
     if df is not None:
         model_indices = df.index.to_numpy()
     np.random.seed(1234)
     np.random.shuffle(model_indices)
     num_models = len(model_indices)
-    assert train_split + val_split + test_split == 1
     border1 = int(num_models * train_split)
     border2 = int(num_models * (train_split + val_split))
     if df:
@@ -564,10 +565,10 @@ def pad_and_stack(*batches, random_sample_number=None):
     Returns:
         np.array: Stacked numpy array
     """
-    for _batch in batches:
-        assert len(_batch) == len(batches[0]), (
-            "All arrays in the batch must have the same length"
-        )
+    if not reduce(eq, map(len, batches)):
+        msg = "All arrays in the batch must have the same length"
+        raise ValueError(msg)
+
     lengths = np.array([len(data) for data in batches[0]], dtype=int)
     if random_sample_number is not None and random_sample_number > 0:
         random_starts = np.random.uniform(size=lengths.shape[0])
@@ -612,8 +613,10 @@ def log_semi_sorter(model_indices, feature_data_by_model, log_noise_parameter=0.
     return sorted_indices
 
 
-def filter_models_by_series_length(length, model_indices, dataset_path):
-    with h5py.File(dataset_path, "r") as fh:
+def filter_models_by_series_length(
+    length: int, model_indices: list[str], dataset_path: str | Path
+):
+    with h5py.File(str(dataset_path), "r") as fh:
         model_indices = [
             model for model in model_indices if fh[model + "/pdr"].shape[0] >= length
         ]
