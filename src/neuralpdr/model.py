@@ -23,9 +23,9 @@ class LatentMLP(eqx.Module):
         width: int,
         depth: int,
         key: jax.random.PRNGKey,
-        activation=jax.nn.softplus,
-        final_activation=None,
-        n_output_features: int = None,
+        activation: Callable,
+        final_activation: Callable | None = None,
+        n_output_features: int | None = None,
         **kwargs,
     ) -> None:
         """Create a neural network model for the neural ODE.
@@ -163,8 +163,8 @@ class EncoderEvolveDecoder(eqx.Module):
         latent_weight_truncation,
         latent_bottleneck: int = 4,
         n_aux_features: int = False,
-        latent_final_activation=jax.nn.tanh,
         *,
+        latent_final_activation: Callable,
         keys,
         **kwargs,
     ):
