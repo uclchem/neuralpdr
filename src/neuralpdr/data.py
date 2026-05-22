@@ -2,7 +2,6 @@ from functools import reduce
 import gc
 import json
 import logging
-from operator import eq
 import pickle
 from pathlib import Path
 from typing import Union
@@ -565,7 +564,7 @@ def pad_and_stack(*batches, random_sample_number=None):
     Returns:
         np.array: Stacked numpy array
     """
-    if not reduce(eq, map(len, batches)):
+    if not reduce(lambda i, j: j if i == j else False, map(len, batches)):
         msg = "All arrays in the batch must have the same length"
         raise ValueError(msg)
 
