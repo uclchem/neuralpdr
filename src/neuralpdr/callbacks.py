@@ -8,7 +8,8 @@ import jax.numpy as jnp
 import neptune
 import orbax.checkpoint as ocp
 
-from neuralpdr.plot import plot_batch
+from .config import to_json
+from .plot import plot_batch
 
 try:
     from secret_api_key import NEPTUNE_API_TOKEN
@@ -22,7 +23,7 @@ class SaveWeightCallback:
         self.hyperparameters = hyperparameters
         self.frequency = frequency
         with open(self.savepath / "hyperparameters.json", "wb") as fh:
-            fh.write(json.dumps(self.hyperparameters).encode("UTF-8"))
+            fh.write(to_json(self.hyperparameters))
 
     def __call__(self, **kwargs):
         epoch = kwargs["epoch"]

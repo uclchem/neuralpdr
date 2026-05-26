@@ -172,3 +172,8 @@ def read_as(path: str | Path, as_type: type[conf_t]) -> conf_t:
         raise RuntimeError(f"{path}: missing {as_type.__name__!r} file")
     parsed = _read_toml(path)
     return TypeAdapter(as_type).validate_python(parsed)
+
+
+def to_json(config: Conf | Features | Norms | DataMetadata) -> bytes:
+    adapter = TypeAdapter(type(config))
+    return adapter.dump_json(config, exclude_none=True)
