@@ -42,7 +42,7 @@ dependencies = [
     "pydantic",
     "pytest",
     "ray",
-    "tomli; python_version < '3.11'",
+    "tomlkit",
     "tqdm",
 ]
 

@@ -1,8 +1,13 @@
 from pydantic import ValidationError
 import pytest
 
-from neuralpdr.config import FNO, Latent, LearningScheduler, LearningScheme, Split
-from neuralpdr.config import tomllib
+from neuralpdr.config import (
+    LearningScheduler,
+    LearningScheme,
+    Split,
+    read_conf,
+    write_conf,
+)
 
 
 @pytest.mark.parametrize("train,validate,test", [(0.7, 0.2, 0.1)])
@@ -30,3 +35,12 @@ def test_learning_scheme(scheduler: LearningScheduler):
 def test_learning_scheme_err():
     with pytest.raises(ValidationError):
         LearningScheme("unreal", 42, 0.314)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [f"configs/{f}" for f in ("v1/ml4ps_paper/mlps_model_1.toml", "v2/base.toml")],
+)
+def test_write_conf(path, tmp_path):
+    conf = read_conf(path)
+    write_conf(conf, tmp_path / "config.toml")

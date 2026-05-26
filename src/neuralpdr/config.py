@@ -4,10 +4,7 @@ from pathlib import Path
 import sys
 from typing import Annotated, Literal, TypeAlias, TypeVar
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
+import tomlkit
 
 from pydantic import Field, TypeAdapter, model_validator
 from pydantic.dataclasses import dataclass
@@ -101,7 +98,7 @@ Conf: TypeAlias = Annotated[Latent | FNO, Field(discriminator="model")]
 def _read_toml(path: Path) -> dict:
     match path.suffix:
         case ".toml":
-            return tomllib.loads(path.read_text())
+            return tomlkit.loads(path.read_text())
         case ".json":
             return json.loads(path.read_text())
         case _:
@@ -113,6 +110,13 @@ def read_conf(path: str | Path) -> Conf:
         raise RuntimeError(f"{path}: missing config file")
     parsed = _read_toml(path)
     return TypeAdapter(Conf).validate_python(parsed)
+
+
+def write_conf(config: Conf, path: str | Path):
+    adapter = TypeAdapter(Conf)
+    data = adapter.dump_python(config, mode="json", exclude_none=True)
+    path = Path(path)
+    path.write_text(tomlkit.dumps(data))
 
 
 @dataclass(frozen=True)
