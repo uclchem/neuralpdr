@@ -32,7 +32,7 @@ dependencies = [
     "jaxtyping",
     "joblib",
     "matplotlib",
-    "neptune",
+    # "neptune",
     "numpy",
     "numpy",
     "opt-einsum",

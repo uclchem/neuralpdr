@@ -5,16 +5,17 @@ from pathlib import Path
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import neptune
+
+# import neptune
 import orbax.checkpoint as ocp
 
 from .config import to_json
 from .plot import plot_batch
 
-try:
-    from secret_api_key import NEPTUNE_API_TOKEN
-except ImportError:
-    NEPTUNE_API_TOKEN = None
+# try:
+#     from secret_api_key import NEPTUNE_API_TOKEN
+# except ImportError:
+#     NEPTUNE_API_TOKEN = None
 
 
 class SaveWeightCallback:
@@ -34,41 +35,41 @@ class SaveWeightCallback:
         self.frequency += 1
 
 
-class NeptuneLogger:
-    def __init__(self, neptune_project_name, hyperparameters, name=None, tags=None):
-        self.neptune_project_name = neptune_project_name
-        if NEPTUNE_API_TOKEN:
-            self.neptune_client = neptune.init_run(
-                project=self.neptune_project_name,
-                api_token=NEPTUNE_API_TOKEN,
-                source_files="src/*.py",
-                name=name,
-                tags=tags,
-                monitoring_namespace="monitoring",  # This is the namespace for the monitoring metrics
-            )
-            self.log_metric("hyperparameters", hyperparameters)
-        else:
-            self.neptune_client = None
+# class NeptuneLogger:
+#     def __init__(self, neptune_project_name, hyperparameters, name=None, tags=None):
+#         self.neptune_project_name = neptune_project_name
+#         if NEPTUNE_API_TOKEN:
+#             self.neptune_client = neptune.init_run(
+#                 project=self.neptune_project_name,
+#                 api_token=NEPTUNE_API_TOKEN,
+#                 source_files="src/*.py",
+#                 name=name,
+#                 tags=tags,
+#                 monitoring_namespace="monitoring",  # This is the namespace for the monitoring metrics
+#             )
+#             self.log_metric("hyperparameters", hyperparameters)
+#         else:
+#             self.neptune_client = None
 
-    def __call__(self, **kwargs):
-        self.log_metrics(kwargs["neptune_metrics"])
+#     def __call__(self, **kwargs):
+#         self.log_metrics(kwargs["neptune_metrics"])
 
-    def log_metric(self, key, value):
-        if NEPTUNE_API_TOKEN:
-            self.neptune_client[key].append(value)
+#     def log_metric(self, key, value):
+#         if NEPTUNE_API_TOKEN:
+#             self.neptune_client[key].append(value)
 
-    def log_metrics(self, metrics):
-        for k, v in metrics.items():
-            self.log_metric(k, v)
+#     def log_metrics(self, metrics):
+#         for k, v in metrics.items():
+#             self.log_metric(k, v)
 
-    def get_client(self):
-        if NEPTUNE_API_TOKEN:
-            return self.neptune_client
-        else:
-            return {}
+#     def get_client(self):
+#         if NEPTUNE_API_TOKEN:
+#             return self.neptune_client
+#         else:
+#             return {}
 
-    def __close__(self):
-        neptune.stop()
+#     def __close__(self):
+#         neptune.stop()
 
 
 class JaxProfiler:
@@ -118,28 +119,28 @@ class CudaartProfiler:
         self.libcudart.cudaProfilerStop()
 
 
-class LogModelWeightNorms:
-    def __init__(self, neptune_callback: NeptuneLogger):
-        self.neptune_cb = neptune_callback
+# class LogModelWeightNorms:
+#     def __init__(self, neptune_callback: NeptuneLogger):
+#         self.neptune_cb = neptune_callback
 
-    @staticmethod
-    def is_linear(self, x):
-        return isinstance(x, eqx.nn.Linear)
+#     @staticmethod
+#     def is_linear(self, x):
+#         return isinstance(x, eqx.nn.Linear)
 
-    @staticmethod
-    def get_weights(self, m):
-        return [
-            x.weight
-            for x in jax.tree_util.tree_leaves(m, is_leaf=self.is_linear)
-            if self.is_linear(x)
-        ]
+#     @staticmethod
+#     def get_weights(self, m):
+#         return [
+#             x.weight
+#             for x in jax.tree_util.tree_leaves(m, is_leaf=self.is_linear)
+#             if self.is_linear(x)
+#         ]
 
-    def __call__(self, **kwargs):
-        model = kwargs["model"]
-        for weights in self.get_weights(model):
-            self.neptune_cb.log_metric(
-                f"weights_{weights.name}_l2", jnp.mean(weights.weight**2)
-            )
+#     def __call__(self, **kwargs):
+#         model = kwargs["model"]
+#         for weights in self.get_weights(model):
+#             self.neptune_cb.log_metric(
+#                 f"weights_{weights.name}_l2", jnp.mean(weights.weight**2)
+#             )
 
 
 class OneBatchPlotter:

@@ -19,7 +19,7 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from neuralpdr.callbacks import (
     EarlyTerminate,
-    NeptuneLogger,
+    # NeptuneLogger,
     OneBatchPlotter,
     SaveWeightCallback,
 )
