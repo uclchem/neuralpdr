@@ -1,4 +1,4 @@
-save_file_path = "/home/gijsv/emulating-3dpdr/results_v3"
+save_file_path = "data/results/v3"
 neptune_project = "AutoChemulator/3dpdr-v3"
 dataset_path = "data/processed/3dpdr_dataset_v3_smooth.h5"
 input_features_file = "configs/v3/features/input_features.toml"

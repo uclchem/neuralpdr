@@ -1,4 +1,4 @@
-save_file_path = "/home/gijsv/emulating-3dpdr/results_v3_bs_128/continue_epoch_20"
+save_file_path = "data/results/v3/bs_128_continue_epoch_20"
 neptune_project = "AutoChemulator/3dpdr-v3"
 dataset_path = "/projects/1/prjs1344/v3/step_split_1_smooth.h5"
 input_features_file = "configs/v3/features/input_features.toml"
@@ -16,7 +16,7 @@ weight_truncation = 10.0
 shuffle_every_n_epochs = 1
 epochs_per_partial_timeseries = 200
 weight_decay = 0.0001
-checkpoint_file = "/home/gijsv/emulating-3dpdr/results_v3_bs_128/weights_epoch_20.eqx"
+checkpoint_file = "data/results/v3/bs_128_weights_epoch_20.eqx"
 checkpoint_epoch = 20
 model = "latent"
 depth = 3
