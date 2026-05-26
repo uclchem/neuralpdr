@@ -8,19 +8,22 @@ weight_scale = 1.2879740534129
 weight_truncation = 10.0
 shuffle_every_n_epochs = 1
 weight_decay = 0.0001274459152
-input_features_file = "configs/input_features_v1.yaml"
+input_features_file = "configs/input_features_v1.toml"
 enc_dec_depth = 1
-latent_depth = 3
 enc_dec_width = 592
-latent_width = 592
-latent_bottleneck = 37
-latent_final_activation = "tanh"
 aux_features = true
 minimal_timeseries_length = 32
-train_split = 0.7
-val_split = 0.15
-test_split = 0.15
 training_batch_subsampling = 1.0
+model = "latent"
+depth = 3
+width = 592
+bottleneck = 37
+final_activation = "tanh"
+
+[train_test_val_split]
+train = 0.7
+validate = 0.15
+test = 0.15
 
 [[learning_schemes]]
 timeseries_fraction = 0.33

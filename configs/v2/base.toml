@@ -5,8 +5,6 @@ neptune_project = "AutoChemulator/3dpdr-v2"
 batch_size = 32
 enc_dec_depth = 3
 enc_dec_width = 128
-latent_depth = 3
-latent_width = 32
 dataset_path = "/projects/1/prjs1344/v2/3dpdr_dataset_v2.h5"
 weight_scale = 1.0
 weight_truncation = 10.0
@@ -15,15 +13,20 @@ epochs_per_partial_timeseries = 200
 weight_decay = 0.0001
 double_epochs_last_fraction = false
 learning_rate_scheme = "sgdr"
-input_features_file = "configs/v2/features/input_features.yaml"
-latent_bottleneck = 16
+input_features_file = "configs/v2/features/input_features.toml"
 aux_features = true
-train_split = 0.7
-val_split = 0.15
-test_split = 0.15
 training_batch_subsampling = 1.0
-latent_final_activation = "tanh"
 minimal_timeseries_length = 32
+model = "latent"
+depth = 3
+width = 32
+bottleneck = 16
+final_activation = "tanh"
+
+[train_test_val_split]
+train = 0.7
+validate = 0.15
+test = 0.15
 
 [[learning_schemes]]
 timeseries_fraction = 32
