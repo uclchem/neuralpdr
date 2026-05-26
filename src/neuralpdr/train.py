@@ -436,7 +436,7 @@ def main(conf: Latent | FNO):
 
     input_features = read_as(conf.input_features_file, Features)
 
-    if conf.normalisations_file.exists():
+    if conf.normalisations_file and conf.normalisations_file.exists():
         normalization_parameters = read_as(conf.normalisations_file, Norms)
     else:
         normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
@@ -544,7 +544,7 @@ def main(conf: Latent | FNO):
 
     key = jax.random.PRNGKey(0)
     mlp_key, enc_key, dec_key = jax.random.split(key, 3)
-    if conf.checkpoint_file.exists():
+    if conf.checkpoint_file and conf.checkpoint_file.exists():
         enc_evolve_dec, hp = checkpoint_deserializer(
             Path(conf.save_file_path) / "hyperparameters.json",
             conf.checkpoint_file,

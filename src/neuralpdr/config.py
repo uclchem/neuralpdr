@@ -64,9 +64,6 @@ class _Train:
     training_batch_subsampling: float
     shuffle_every_n_epochs: int
     learning_schemes: list[LearningScheme]
-    normalisations_file: Path
-    checkpoint_file: Path
-    checkpoint_epoch: int  # maybe needs a `None` default
 
 
 @dataclass(frozen=True)
@@ -77,6 +74,9 @@ class _Latent:
 
 @dataclass(frozen=True)
 class Latent(_Base, _Train, _Latent):
+    normalisations_file: Path | None = None
+    checkpoint_file: Path | None = None
+    checkpoint_epoch: int = 0
     double_epochs_last_fraction: bool = False
     model: Literal["latent"] = "latent"
 
@@ -88,6 +88,9 @@ class _FNO:
 
 @dataclass(frozen=True)
 class FNO(_Base, _Train, _FNO):
+    normalisations_file: Path | None = None
+    checkpoint_file: Path | None = None
+    checkpoint_epoch: int = 0
     double_epochs_last_fraction: bool = False
     model: Literal["fno"] = "fno"
 
