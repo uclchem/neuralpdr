@@ -97,6 +97,8 @@ def test_training_pipeline_integration(version, tmp_path: Path):
     # Force CPU to avoid GPU-related CI issues
     env["JAX_PLATFORM_NAME"] = "cpu"
     env["CUDA_VISIBLE_DEVICES"] = ""
+    # Skip plotting in integration tests
+    env["NEURALPDR_PLOT_FREQ"] = "999999"
 
     # Remove any old cache files for this dataset to avoid cache/model index mismatches
     base = config.dataset_path.with_suffix("")

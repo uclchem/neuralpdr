@@ -49,7 +49,7 @@ from neuralpdr.utils import join_schedules
 jax.config.update("jax_traceback_in_locations_limit", -1)
 
 # Jax backend
-jax.config.update("jax_platform_name", "gpu")
+jax.config.update("jax_platform_name", os.environ.get("JAX_PLATFORM_NAME", "gpu"))
 jax.config.update("jax_compilation_cache_dir", "./tmp/jax_cache")
 jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
 jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
@@ -507,7 +507,8 @@ def main(conf: Latent | FNO):
 
     # add callbacks for various things.
     save_weights_callback = SaveWeightCallback(save_file_path, conf, 1)
-    plot_callback = OneBatchPlotter(save_file_path, 1)  # plot_frequency
+    plot_freq = int(os.environ.get("NEURALPDR_PLOT_FREQ", 1))
+    plot_callback = OneBatchPlotter(save_file_path, plot_freq)
     early_terminate_callback = EarlyTerminate(100, patience=10)
     # neptune_logger = NeptuneLogger(
     #     conf["neptune_project"], conf, tags=conf.get("neptune_tags")
