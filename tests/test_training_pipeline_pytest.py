@@ -50,11 +50,16 @@ def create_test_config(base_config_path: Path, tmp_dir: Path, version: str):
             warmup_epochs=0,
         )
     # Small batch to ensure multiple batches per split
+    # Also shrink model architecture for fast compilation in tests
     config = replace(
         config,
         batch_size=8,
         shuffle_every_n_epochs=0,
         learning_schemes=[ls],
+        enc_dec_width=32,
+        width=32,
+        bottleneck=8,
+        save_file_path=tmp_dir,
     )
 
     # Save to temporary config file (this is what a user would run)
