@@ -9,10 +9,8 @@ from neuralpdr.config import LearningScheme, read_conf, write_conf
 
 pytestmark = pytest.mark.integration
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Mapping of version -> base config path and test dataset
 TEST_DATASETS = {
