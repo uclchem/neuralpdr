@@ -2,12 +2,11 @@ chex==0.1.86
 diffrax==0.6.0
 equinox==0.11.4
 h5py==3.11.0
-jax==0.4.31
-jax-cuda12-pjrt==0.4.31
-jax-cuda12-plugin==0.4.31
-jaxlib==0.4.31
+jax==0.4.34
+jax-cuda12-pjrt==0.4.34
+jax-cuda12-plugin==0.4.34
+jaxlib==0.4.34
 jaxtyping==0.2.33
-neptune==1.11.1
 numpy==1.26.4
 nvidia-cublas-cu12==12.6.0.22
 nvidia-cuda-cupti-cu12==12.6.37

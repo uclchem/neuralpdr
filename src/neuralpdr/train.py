@@ -203,7 +203,7 @@ def make_step(
         ),
         grads,
     ) = grad_loss(model, batch_iv, batch_data, batch_aux, loss_weights)
-    updates, opt_state = optim.update(grads, opt_state, model)
+    updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_array))
     model = eqx.apply_updates(model, updates)
     return (
         value,
