@@ -1,6 +1,7 @@
 # Standard imports
 import argparse
 import json
+import logging
 import os
 from dataclasses import asdict
 from datetime import datetime
@@ -436,8 +437,15 @@ def main(conf: Latent | FNO):
 
     input_features = read_as(conf.input_features_file, Features)
 
-    if conf.normalisations_file and conf.normalisations_file.exists():
-        normalization_parameters = read_as(conf.normalisations_file, Norms)
+    if conf.normalisations_file:
+        if conf.normalisations_file.exists():
+            normalization_parameters = read_as(conf.normalisations_file, Norms)
+        else:
+            logging.warning(
+                f"normalisations_file {conf.normalisations_file!r} not found; "
+                "using default (zero-mean, unit-std) normalization"
+            )
+            normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
     else:
         normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
 

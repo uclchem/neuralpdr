@@ -25,6 +25,7 @@ from neuralpdr.config import (
     Norms,
     read_conf,
     read_as,
+    to_json,
 )
 from neuralpdr.data import (
     PDRLoader,
@@ -284,9 +285,9 @@ def main(opts: argparse.Namespace):
             fh_save["metadata"].attrs["data_metadata"] = json.dumps(
                 asdict(data_metadata)
             )
-            fh_save["metadata"].attrs["hyperparameters"] = json.dumps(
-                asdict(hyperparameters)
-            )
+            fh_save["metadata"].attrs["hyperparameters"] = to_json(
+                hyperparameters
+            ).decode()
 
     print(f"Pure inference time was: {inference_time}")
 

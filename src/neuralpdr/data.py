@@ -1,5 +1,4 @@
 from functools import reduce
-import gc
 import json
 import logging
 import pickle
@@ -32,7 +31,7 @@ class PDRLoader:
         independent_variable: str,
         data_features: list[str],
         auxiliary_features: list[str],
-        index_range: tuple[int, int],
+        index_range: tuple[int, int | None],
         model_indices: list[str],
         model_df: pd.DataFrame | None = None,
         batch_size: int = 16,
@@ -74,7 +73,10 @@ class PDRLoader:
         self.auxilary_features = auxiliary_features
         self.model_df = model_df
         self.start_index, self.end_index = index_range
-        self.timeseries_length = self.end_index - self.start_index
+        # timeseries_length is set after load_data() when end_index is None
+        self.timeseries_length: int | None = (
+            None if self.end_index is None else self.end_index - self.start_index
+        )
         self.batch_size = batch_size
         self.model_indices = model_indices
         self.normalization_parameters: dict[str, dict[str, float | np.ndarray]] = {}
@@ -124,6 +126,13 @@ class PDRLoader:
 
         # Load all the data into memory
         self.load_data()
+
+        # When end_index is None we use all available timesteps; derive the
+        # series length from the loaded data so set_timeseries_fraction works.
+        if self.timeseries_length is None:
+            self.timeseries_length = max(
+                len(v) for v in self.feature_data_by_model.values()
+            )
 
         # Apply the normalization to the data
         # TODO: add saved normalisation parameters.
@@ -431,7 +440,7 @@ class PDRLoader:
         print("trying to set the next fraction index with frac", frac)
         if frac == 1.0 or frac is None:
             self.dynamic_end_index = None
-        if isinstance(frac, float):
+        elif isinstance(frac, float):
             # Set the end index to the fraction of the timeseries length
             self.dynamic_end_index = np.ceil(frac * self.timeseries_length).astype(int)
         elif isinstance(frac, int):
@@ -538,7 +547,7 @@ def shuffle_and_split(
     num_models = len(model_indices)
     border1 = int(num_models * train_split)
     border2 = int(num_models * (train_split + val_split))
-    if df:
+    if df is not None:
         return df.iloc[0:border1], df.iloc[border1:border2], df.iloc[border2:]
     else:
         return (

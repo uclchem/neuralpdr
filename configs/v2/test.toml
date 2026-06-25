@@ -18,6 +18,7 @@ timeseries_fractions = [0.33, 0.67, 1.0]
 aux_features = true
 minimal_timeseries_length = 32
 training_batch_subsampling = 1.0
+learning_schemes = []
 model = "latent"
 depth = 4
 width = 64
