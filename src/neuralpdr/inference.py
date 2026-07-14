@@ -208,7 +208,7 @@ def main(opts: argparse.Namespace):
                 #     key: {}
                 #     for key in ["pred_y", "evolved_z", "auto_y", "direct_z", "steps"]
                 # }
-                outputs_per_model = {}
+                outputs_per_model: dict[str, dict] = {}
                 for ivs, data, aux, batch_keys in tqdm(
                     zip(ivs, datas, auxs, keys_per_batch)
                 ):

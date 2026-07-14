@@ -22,7 +22,7 @@ class LatentMLP(eqx.Module):
         n_input_features: int,
         width: int,
         depth: int,
-        key: jax.random.PRNGKey,
+        key: jax.Array,
         activation: Callable,
         final_activation: Callable | None = None,
         n_output_features: int | None = None,
@@ -60,7 +60,7 @@ def get_flexible_block(
     input_size: int,
     output_size: int,
     layers: list[int],
-    key: jax.random.PRNGKey,
+    key: jax.Array,
     activation,
     final_activation=None,
 ):
@@ -207,7 +207,7 @@ class EncoderEvolveDecoder(eqx.Module):
 
     def __call__(
         self, ivs: jax.Array, y: jax.Array, aux: jax.Array
-    ) -> (jax.Array, jax.Array, jax.Array, jax.Array):
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
         # encode
         z = jax.vmap(self.enc, in_axes=(0,))(y)
         initial_z = z[0]
@@ -257,7 +257,7 @@ class trunc_init:
         self.lower = lower
         self.upper = upper
 
-    def __call__(self, weight: jax.Array, key: jax.random.PRNGKey) -> jax.Array:
+    def __call__(self, weight: jax.Array, key: jax.Array) -> jax.Array:
         """Initialize the weights of the neural network with a truncated normal distribution.
 
         Args:
@@ -320,8 +320,8 @@ def get_norm(mlp: eqx.Module, order: int = 1) -> list[jax.Array]:
 
 def init_linear_weight(
     model: eqx.Module,
-    init_fn: Callable[[jax.Array, jax.random.PRNGKey], jax.Array],
-    key: jax.random.PRNGKey,
+    init_fn: Callable[[jax.Array, jax.Array], jax.Array],
+    key: jax.Array,
 ) -> eqx.Module:
     """Initialize the weights of the neural network.
 

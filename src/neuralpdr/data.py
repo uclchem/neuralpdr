@@ -73,10 +73,6 @@ class PDRLoader:
         self.auxilary_features = auxiliary_features
         self.model_df = model_df
         self.start_index, self.end_index = index_range
-        # timeseries_length is set after load_data() when end_index is None
-        self.timeseries_length: int | None = (
-            None if self.end_index is None else self.end_index - self.start_index
-        )
         self.batch_size = batch_size
         self.model_indices = model_indices
         self.normalization_parameters: dict[str, dict[str, float | np.ndarray]] = {}
@@ -88,9 +84,9 @@ class PDRLoader:
         self.drop_last = drop_last
         self.use_cache = use_cache
         self.batch_subsampling = batch_subsampling
-        self.model_indices_per_batch = []
+        self.model_indices_per_batch: list[list[str]] = []
 
-        self.dynamic_end_index = None
+        self.dynamic_end_index: int | None = None
 
         if not self.model_indices:
             self.model_indices = text_from_h5(dataset_path, "model_ids")
@@ -118,9 +114,9 @@ class PDRLoader:
         self.auxiliary_data_by_model: dict[str, np.ndarray] = {}
 
         # Create lists to store the batched data, or an array of jax data with shape (n_batches, batch_size, av_points, n_features)
-        self.batched_feature_data: list[np.ndarray] = []
-        self.batched_independent_data: list[np.ndarray] = []
-        self.batched_auxiliary_data: list[np.ndarray] = []
+        self.batched_feature_data: list[np.ndarray] | Array = []
+        self.batched_independent_data: list[np.ndarray] | Array = []
+        self.batched_auxiliary_data: list[np.ndarray] | Array = []
         # Store all the names of each of the samples in a list
         self.batched_indices: list[list] = []
 
@@ -129,10 +125,13 @@ class PDRLoader:
 
         # When end_index is None we use all available timesteps; derive the
         # series length from the loaded data so set_timeseries_fraction works.
-        if self.timeseries_length is None:
+        if self.end_index is None:
+            # feature_data_by_model is loaded in load_data()
             self.timeseries_length = max(
                 len(v) for v in self.feature_data_by_model.values()
             )
+        else:
+            self.timeseries_length = self.end_index - self.start_index
 
         # Apply the normalization to the data
         # TODO: add saved normalisation parameters.
@@ -267,11 +266,11 @@ class PDRLoader:
             std (float| np.ndarray, optional): Standard deviation for standardization, must either be scalar or the same shape as the last dimension of the data
             eps (float| np.ndarray, optional): Small epsilon to add to the data. Defaults to 1e-20.
         """
-        if (mean is None and std is not None) or (mean is not None and std is None):
+        if (mean is None) != (std is None):
             raise RuntimeError("Either both mean and std must be provided or neither.")
 
-        if mean is None:
-            statistics_shape = {
+        if mean is None and std is None:
+            statistics_shape: dict[str, tuple[int, int] | int] = {
                 "data": (len(dataset), self.n_data_features),
                 "aux": (len(dataset), self.n_aux_features),
                 "iv": (len(dataset)),
@@ -280,22 +279,27 @@ class PDRLoader:
             means: np.ndarray = np.zeros(statistics_shape[type_])
             vars_: np.ndarray = np.zeros(statistics_shape[type_])
             print("Computing statistics for normalization")
+            data: np.ndarray
             for idx, data in tqdm(enumerate(dataset.values())):
                 sample_lengths[idx] = len(data)
                 data = np.log10(data + eps)
                 # Compute the statistics, but mask the data at the lower boundary.
                 means[idx], vars_[idx] = (
-                    np.mean(np.ma.masked_values(data, eps), axis=0),
-                    np.var(np.ma.masked_values(data, eps), axis=0),
+                    np.mean(np.ma.masked_values(data, eps), axis=0),  # type: ignore[arg-type]
+                    np.var(np.ma.masked_values(data, eps), axis=0),  # type: ignore[arg-type]
                 )
+                # numpy type hints for masked_values is incomplete, leading to errors
             # TODO: take the weighted mean and variance here.
-            mean: np.ndarray = np.average(means, axis=0, weights=sample_lengths)
+            mean = np.average(means, axis=0, weights=sample_lengths)
             # Approximate the standard deviation over each features by adding the variance of the means and the mean of the variances.
-            std: np.ndarray = np.sqrt(np.mean(vars_, axis=0) + np.var(means, axis=0))
+            std = np.sqrt(np.mean(vars_, axis=0) + np.var(means, axis=0))
             if std.any() < 1e-30:
                 raise ValueError(
                     f"Standard deviation cannot be 0, it is for indices {np.where(std == 1e-30)}"
                 )
+
+        assert (mean is not None) and (std is not None), "For the type checker"
+
         # Save the mean and std for later use
         self.normalization_parameters[type_] = {"mean": mean, "std": std, "eps": eps}
         # Apply the transformation to the data
@@ -351,9 +355,7 @@ class PDRLoader:
         # Create the batches, including a final batch that is smaller than the batch size
         fenceposts = list(range(0, len(model_indices), self.batch_size))
         if not self.drop_last:
-            fenceposts += [
-                len(model_indices),
-            ]
+            fenceposts += [len(model_indices)]
         # Create the list of grouped model indices for the batches
         batch_indices_lil = [
             self.model_indices[start:stop]
@@ -410,7 +412,9 @@ class PDRLoader:
     def get_all_batches(
         self,
     ) -> tuple[
-        list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array
+        list[np.ndarray] | Array | npt.ArrayLike,
+        list[np.ndarray] | Array | npt.ArrayLike,
+        list[np.ndarray] | Array | npt.ArrayLike,
     ]:
         """Get all the batches of data and av
 
@@ -459,22 +463,20 @@ class PDRLoader:
                 self.model_indices, self.feature_data_by_model
             )
         else:
-            self.model_indices = np.random.permutation(self.model_indices)
+            self.model_indices = np.random.permutation(self.model_indices).tolist()
         if self.batch_subsampling:
+            _batch_size: int | list[int]
             if isinstance(self.batch_subsampling, float):
-                model_indices = np.random.choice(
-                    self.model_indices,
-                    size=int(len(self.model_indices) * self.batch_subsampling),
-                    replace=False,
-                ).tolist()
+                _batch_size = int(len(self.model_indices) * self.batch_subsampling)
             elif isinstance(self.batch_subsampling, int):
-                model_indices = np.random.choice(
-                    self.model_indices, size=[self.batch_subsampling], replace=False
-                )
+                _batch_size = [self.batch_subsampling]
             else:
                 raise ValueError(
                     "Batch subsampling must be either a float or an integer"
                 )
+            model_indices: list[str] = np.random.choice(
+                self.model_indices, size=_batch_size, replace=False
+            ).tolist()
             # Reload the data with the sub batching
             self.create_batches(model_indices)
         else:
@@ -490,9 +492,7 @@ class PDRLoader:
 
     def __getitem__(
         self, idx: int
-    ) -> tuple[
-        list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array
-    ]:
+    ) -> tuple[np.ndarray | Array, np.ndarray | Array, np.ndarray | Array]:
         """Get the batched data and av at a given batch index, returning them as jax arrays or list of arrays
 
         Args:
@@ -569,14 +569,14 @@ def load_split(savepath: Path) -> list[str]:
 
 
 class PadAndStack:
-    def __init__(self, random_sample_number=None):
+    def __init__(self, random_sample_number: int | None = None):
         self.random_sample_number = random_sample_number
 
     def __call__(self, batch):
-        return pad_and_stack(batch, self.random_sample_number)
+        return pad_and_stack(batch, random_sample_number=self.random_sample_number)
 
 
-def pad_and_stack(*batches, random_sample_number=None):
+def pad_and_stack(*batches: list[np.ndarray], random_sample_number: int | None = None):
     """Pad and stack the batch of data
 
     Args:
@@ -591,18 +591,18 @@ def pad_and_stack(*batches, random_sample_number=None):
 
     lengths = np.array([len(data) for data in batches[0]], dtype=int)
     if random_sample_number is not None and random_sample_number > 0:
-        random_starts = np.random.uniform(size=lengths.shape[0])
+        random_starts_flt = np.random.uniform(size=lengths.shape[0])
         random_starts = np.floor(
-            random_starts * (lengths - random_sample_number)
+            random_starts_flt * (lengths - random_sample_number)
         ).astype(int)
         random_starts[random_starts < 0] = 0
         random_ends = np.minimum(random_starts + random_sample_number, lengths).astype(
             int
         )
-        batches = [
+        batches = tuple(
             [series[a:b] for series, a, b in zip(batch, random_starts, random_ends)]
             for batch in batches
-        ]
+        )
         max_length = max([len(data) for data in batches[0]])
     else:
         max_length = max(lengths)
@@ -622,13 +622,19 @@ def pad_and_stack(*batches, random_sample_number=None):
     return padded_batches
 
 
-def log_semi_sorter(model_indices, feature_data_by_model, log_noise_parameter=0.01):
+def log_semi_sorter(
+    model_indices: list[str],
+    feature_data_by_model: dict[str, np.ndarray],
+    log_noise_parameter: float = 0.01,
+):
     lengths = np.array([len(feature_data_by_model[model]) for model in model_indices])
     semi_random_sort_key = np.log10(lengths) + np.random.uniform(
         -log_noise_parameter, log_noise_parameter, lengths.shape
     )
-    sorted_indices = dict(zip(model_indices, semi_random_sort_key))
-    sorted_indices = sorted(sorted_indices, key=sorted_indices.get)
+    sorted_indices_dict: dict[str, float] = dict(
+        zip(model_indices, semi_random_sort_key)
+    )
+    sorted_indices = sorted(sorted_indices_dict, key=sorted_indices_dict.__getitem__)
     sorted_indices = list(sorted_indices)
     return sorted_indices
 
