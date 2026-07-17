@@ -2,17 +2,9 @@
 requires = ["setuptools >= 61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
 [project]
 name = "neuralpdr"
 version = "2024.9.6"
-dependencies = [
-    "jax",
-    "numpy",
-]
-requires-python = ">=3.10"
 authors = [
   {name = "Gijs Vermariën", email = "vermarien@strw.leidenuniv.nl"}
 ]
@@ -27,4 +19,39 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python"
 ]
+requires-python = ">=3.11,<3.14" # for ray; 3.11+ required by diffrax>=0.7 and chex>=0.1.92
+dependencies = [
+    "PyYAML",
+    "chex==0.1.92",
+    "diffrax==0.7.2",
+    "equinox==0.13.8",
+    "h5py",
+    "jax==0.7.2",
+    "jaxlib==0.7.2",
+    "jaxtyping==0.2.38",
+    "joblib",
+    "matplotlib",
+    # "neptune",
+    "numpy>=2.0",
+    "opt-einsum",
+    "optax==0.2.8",
+    "orbax",
+    "pandas",
+    "pydantic",
+    "pytest",
+    "ray",
+    "tomlkit",
+    "tqdm",
+]
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["tests/test_*.py"]
+addopts = ["--import-mode=importlib", "-ra"]
+markers = ["integration: integration tests"]
+filterwarnings = [
+    "ignore:jsonschema.RefResolver is deprecated:DeprecationWarning",
+]

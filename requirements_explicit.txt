@@ -1,26 +1,27 @@
-chex==0.1.86
-diffrax==0.6.0
-equinox==0.11.4
-h5py==3.11.0
-jax==0.4.31
-jax-cuda12-pjrt==0.4.31
-jax-cuda12-plugin==0.4.31
-jaxlib==0.4.31
-jaxtyping==0.2.33
-neptune==1.11.1
-numpy==1.26.4
-nvidia-cublas-cu12==12.6.0.22
-nvidia-cuda-cupti-cu12==12.6.37
-nvidia-cuda-nvcc-cu12==12.6.20
-nvidia-cuda-runtime-cu12==12.6.37
-nvidia-cudnn-cu12==9.3.0.75
-nvidia-cufft-cu12==11.2.6.28
-nvidia-cusolver-cu12==11.6.4.38
-nvidia-cusparse-cu12==12.5.2.23
-nvidia-nccl-cu12==2.22.3
-nvidia-nvjitlink-cu12==12.6.20
-opt-einsum==3.3.0
-optax==0.2.3
-pandas==2.2.2
-PyYAML==6.0.2
-ray==2.53.0
+# JAX core
+jax==0.7.2
+jaxlib==0.7.2
+ml_dtypes==0.5.4
+
+# JAX ecosystem
+chex==0.1.92
+diffrax==0.7.2
+equinox==0.13.8
+jaxtyping==0.2.38
+lineax==0.1.0
+optimistix==0.1.0
+optax==0.2.8
+wadler-lindig==0.1.7
+
+# Data & utilities
+h5py==3.16.0
+numpy==2.5.0
+opt-einsum==3.4.0
+orbax==0.1.9
+pandas==3.0.3
+PyYAML==6.0.3
+ray==2.55.1
+
+# GPU (Linux only) — replace the jax/jaxlib lines above with:
+#   pip install -U "jax[cuda13]"       # CUDA 13 (recommended)
+#   pip install -U "jax[cuda12]"       # CUDA 12 (still supported, future drop planned)

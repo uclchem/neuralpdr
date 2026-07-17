@@ -8,16 +8,15 @@ on:
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  test:
-    name: Run all tests
+  unit-tests:
+    name: Run unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       # Force JAX to CPU to avoid GPU dependency on CI
       JAX_PLATFORM_NAME: cpu
       CUDA_VISIBLE_DEVICES: ''
-      PYTHONWARNINGS: "ignore:jsonschema.RefResolver is deprecated:DeprecationWarning"
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,17 +30,14 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # Install CPU JAX for training tests
-          pip install "jax[cpu]"
-          # Install the neuralpdr package in development mode
           pip install -e .
+          pip install "jax[cpu]"
 
       - name: Verify test datasets
         run: |
@@ -49,13 +45,56 @@ jobs:
 
       - name: Run unit tests (datasets and loader)
         run: |
-          pytest tests/test_datasets.py tests/test_pdrloader.py -v --tb=short --junit-xml=test-results-unit.xml
+          pytest -v -m "not integration" --tb=short --junit-xml=test-results-unit.xml
         env:
           PYTHONPATH: ${{ github.workspace }}/src
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          path: test-results-*.xml
+          retention-days: 7
+
+  integration-tests:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Force JAX to CPU to avoid GPU dependency on CI
+      JAX_PLATFORM_NAME: cpu
+      CUDA_VISIBLE_DEVICES: ''
+      PYTHONWARNINGS: "ignore:jsonschema.RefResolver is deprecated:DeprecationWarning"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Pull Git LFS files
+        run: |
+          git lfs pull
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install "jax[cpu]"
+
+      - name: Verify test datasets
+        run: |
+          ls -lh data/test/*.h5 || echo "Warning: Test datasets not found"
+
       - name: Run integration tests (training pipeline)
         run: |
-          pytest tests/test_training_pipeline_pytest.py -q -k training_pipeline --junit-xml=test-results-integration.xml
+          pytest -m integration --junit-xml=test-results-integration.xml
         env:
           PYTHONWARNINGS: ${{ env.PYTHONWARNINGS }}
 
@@ -63,6 +102,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
           path: test-results-*.xml
           retention-days: 7

@@ -6,7 +6,7 @@ This directory contains configuration files for training NeuralPDR models across
 
 **Training a model:**
 ```bash
-python src/neuralpdr/train.py configs/v3/base.yaml
+python src/neuralpdr/train.py configs/v3/base.toml
 ```
 
 **Running inference:**
@@ -15,38 +15,40 @@ python src/neuralpdr/inference.py --dataset_path PATH --model_dir RESULTS_DIR --
 ```
 ### Feature & Normalization Files
 
-**Feature files** (e.g., `v3/features/input_features.yaml`) define which chemical species and auxiliary parameters to use as inputs and outputs.
+**Feature files** (e.g., `v3/features/input_features.toml`) define which chemical species and auxiliary parameters to use as inputs and outputs.
 
-**Normalization files** (e.g., `v3/features/normalisations/default.yaml`) contain pre-computed statistics for data normalization. If not specified, normalization is computed from training data.
+**Normalization files** (e.g., `v3/features/normalisations/default.toml`) contain pre-computed statistics for data normalization. If not specified, normalization is computed from training data.
 
 ## Required Configuration Fields
 
 ### Data Configuration
-```yaml
+```toml
 dataset_path: "path/to/dataset.h5"          # HDF5 dataset file
-input_features_file: "configs/input_features_v3.yaml"
-normalisations_file: "configs/normalisations_try.yaml"  # Optional
+input_features_file: "configs/input_features_v3.toml"
+normalisations_file: "configs/normalisations_try.toml"  # Optional
 start_index: 0                              # Dataset slice start
 end_index: -1                               # Dataset slice end (-1 = all)
 minimal_timeseries_length: 48               # Minimum sequence length
 aux_features: True                          # Use auxiliary features
-train_split: 0.7                            # Training set fraction
-val_split: 0.15                             # Validation set fraction
-test_split: 0.15                            # Test set fraction
 training_batch_subsampling: 1.0             # Batch subsampling ratio
+
+[train_test_val_split]
+train = 0.7                                 # Training set fraction
+validate = 0.15                             # Validation set fraction
+test = 0.15                                 # Test set fraction
 ```
 
 ### Model Configuration
-```yaml
+```toml
 batch_size: 32                              # Training batch size
 enc_dec_depth: 3                            # Encoder/decoder layers
 enc_dec_width: 512                          # Encoder/decoder hidden size
-latent_depth: 3                             # Latent ODE layers
-latent_width: 512                           # Latent ODE hidden size
-latent_bottleneck: 128                      # Latent space dimension
+depth: 3                                    # Latent ODE layers
+width: 512                                  # Latent ODE hidden size
+bottleneck: 128                             # Latent space dimension
 weight_scale: 1.0                           # Weight initialization scale
 weight_truncation: 10.0                     # Weight initialization truncation
-latent_final_activation: "tanh"             # Final activation function
+final_activation: "tanh"                    # Final activation function
 ```
 
 ### Training Configuration
@@ -82,11 +84,11 @@ checkpoint_epoch: 20
 
 ## File Naming Conventions
 
-- `vX/base.yaml` - Base configuration for version X
-- `vX/experiments/{description}.yaml` - Variant configuration
+- `vX/base.toml` - Base configuration for version X
+- `vX/experiments/{description}.toml` - Variant configuration
 - Clear descriptive names (no abbreviations):
-  - `bottleneck_8.yaml` (not `bn_8.yaml`)
-  - `batch_size_64.yaml` (not `bs_64.yaml`)
+  - `bottleneck_8.toml` (not `bn_8.toml`)
+  - `batch_size_64.toml` (not `bs_64.toml`)
 
 ## Common Patterns
 
@@ -105,16 +107,16 @@ learning_schemes:
 ### Hyperparameter Experiments
 
 When testing different hyperparameters:
-1. Copy base config (e.g., `v3/base.yaml`) to `v3/experiments/`
+1. Copy base config (e.g., `v3/base.toml`) to `v3/experiments/`
 2. Modify specific parameter(s)
 3. Update `save_file_path` to reflect the experiment
-4. Save with descriptive name (e.g., `bottleneck_64.yaml`)
+4. Save with descriptive name (e.g., `bottleneck_64.toml`)
 
 ### Path Management
 
 **Relative paths** (recommended for config files):
 ```yaml
-input_features_file: "configs/v3/features/input_features.yaml"
+input_features_file: "configs/v3/features/input_features.toml"
 ```
 
 **Absolute paths or environment variables** (recommended for datasets):
@@ -126,7 +128,7 @@ save_file_path: "~/results/neuralpdr/v3"
 Set environment variables in your shell:
 ```bash
 export DATA_ROOT="/path/to/data"
-python src/neuralpdr/train.py configs/v3/base.yaml
+python src/neuralpdr/train.py configs/v3/base.toml
 ```
 
 ## Troubleshooting

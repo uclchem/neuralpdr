@@ -1,0 +1,47 @@
+start_index = 0
+end_index = 300
+save_file_path = "mlps_linear"
+batch_size = 64
+dataset_path = "3dpdr_dataset_8192.h5"
+learning_rate = 0.001
+weight_scale = 0.01
+weight_truncation = 6.0
+shuffle_every_n_epochs = 1
+weight_decay = 0.002
+input_features_file = "configs/v1/features/input_features.toml"
+enc_dec_depth = 1
+enc_dec_width = 4096
+aux_features = true
+minimal_timeseries_length = 32
+training_batch_subsampling = 1.0
+model = "latent"
+depth = 1
+width = 4096
+bottleneck = 64
+final_activation = "tanh"
+
+[train_test_val_split]
+train = 0.7
+validate = 0.15
+test = 0.15
+
+[[learning_schemes]]
+timeseries_fraction = 0.33
+epochs = 50
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.001
+
+[[learning_schemes]]
+timeseries_fraction = 0.67
+epochs = 50
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.001
+
+[[learning_schemes]]
+timeseries_fraction = 1.0
+epochs = 50
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.001

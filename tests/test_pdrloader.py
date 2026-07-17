@@ -25,8 +25,6 @@ from pathlib import Path
 import h5py
 import pytest
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from neuralpdr.data import PDRLoader, pad_and_stack
 
 # Dataset locations - prefer test datasets

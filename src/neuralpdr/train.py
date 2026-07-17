@@ -1,6 +1,9 @@
 # Standard imports
+import argparse
 import json
+import logging
 import os
+from dataclasses import asdict
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -11,34 +14,43 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import yaml
 from jax.experimental import mesh_utils
 from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from neuralpdr.callbacks import (
     EarlyTerminate,
-    NeptuneLogger,
+    # NeptuneLogger,
     OneBatchPlotter,
     SaveWeightCallback,
+)
+from neuralpdr.config import (
+    AUXNorm,
+    DataNorm,
+    Features,
+    FNO,
+    IVNorm,
+    Latent,
+    Norms,
+    read_as,
+    read_conf,
 )
 from neuralpdr.data import (
     PDRLoader,
     filter_models_by_series_length,
-    h5py_load,
+    text_from_h5,
     log_semi_sorter,
     pad_and_stack,
     shuffle_and_split,
 )
 from neuralpdr.inference import checkpoint_deserializer
 from neuralpdr.model import EncoderEvolveDecoder
-from neuralpdr.parser import get_config, load_input_features
-from neuralpdr.utils import get_git_info, join_schedules
+from neuralpdr.utils import join_schedules
 
 jax.config.update("jax_traceback_in_locations_limit", -1)
 
 # Jax backend
-jax.config.update("jax_platform_name", "gpu")
+jax.config.update("jax_platform_name", os.environ.get("JAX_PLATFORM_NAME", "gpu"))
 jax.config.update("jax_compilation_cache_dir", "./tmp/jax_cache")
 jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
 jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
@@ -62,7 +74,6 @@ MESH = Mesh(devices, axis_names=("batch",))  # naming axes of the mesh
 SPEC = PartitionSpec("batch")
 sharding = NamedSharding(MESH, SPEC)  # naming axes of the sharded partition
 # replicated = NamedSharding(mesh, P())
-
 
 # Potential debugging mode
 # logging.basicConfig(level=logging.DEBUG)
@@ -193,7 +204,7 @@ def make_step(
         ),
         grads,
     ) = grad_loss(model, batch_iv, batch_data, batch_aux, loss_weights)
-    updates, opt_state = optim.update(grads, opt_state, model)
+    updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_array))
     model = eqx.apply_updates(model, updates)
     return (
         value,
@@ -250,20 +261,34 @@ def do_epoch(
         # Initialize the sharding if needed:
         if sharding:
             iv, data, aux = jax.device_put((iv, data, aux), sharding)
-        (
-            train_value,
-            mlp,
-            opt_state,
-            nan_count,
-            solver_steps_min,
-            solver_steps_med,
-            solver_steps_max,
-            rollout_loss,
-            latent_loss,
-            auto_loss,
-        ) = make_step(
-            mlp, optim, opt_state, iv, data, aux, multi_objective_scheduler(epoch)
-        )
+        if multi_objective_scheduler is None:
+            (
+                train_value,
+                mlp,
+                opt_state,
+                nan_count,
+                solver_steps_min,
+                solver_steps_med,
+                solver_steps_max,
+                rollout_loss,
+                latent_loss,
+                auto_loss,
+            ) = make_step(mlp, optim, opt_state, iv, data, aux)
+        else:
+            (
+                train_value,
+                mlp,
+                opt_state,
+                nan_count,
+                solver_steps_min,
+                solver_steps_med,
+                solver_steps_max,
+                rollout_loss,
+                latent_loss,
+                auto_loss,
+            ) = make_step(
+                mlp, optim, opt_state, iv, data, aux, multi_objective_scheduler(epoch)
+            )
         # Save the loss for this batch
         if not jnp.isnan(train_value):
             train_losses = train_losses.at[step].set(train_value)
@@ -312,8 +337,8 @@ def train(
     fracs: list[float],
     train_loader: PDRLoader,
     val_loader: PDRLoader,
-    shuffle_every_n_epochs: int = None,
-    save_file_path: Path = None,
+    shuffle_every_n_epochs: int | None = None,
+    save_file_path: Path | None = None,
     optim: optax.GradientTransformation = None,
     multi_objective_loss_scheduler: Callable = None,
     callbacks={},
@@ -339,6 +364,7 @@ def train(
     epoch_checkpoints_a = [1] + list(np.cumsum(epochs, dtype=int)[:-1] + 1)
     epoch_checkpoints_b = list(np.cumsum(epochs, dtype=int))
 
+    train_loss, val_loss = 0.0, 0.0
     for frac, epoch_a, epoch_b in zip(fracs, epoch_checkpoints_a, epoch_checkpoints_b):
         train_loader.set_timeseries_fraction(frac)
         val_loader.set_timeseries_fraction(frac)
@@ -392,90 +418,85 @@ def make_predictions(mlp, iv, data, aux):
     return pred
 
 
-def main(args=None):
-    if not args:
-        args = get_config()
-    index_range = [args["start_index"], args["end_index"]]
-    save_file_path = Path(args["save_file_path"])
+def get_config() -> Latent | FNO:
+    parser = argparse.ArgumentParser(description="Parse configuration file")
+    parser.add_argument(
+        "config_file", type=str, help="Path to the configuration yaml file"
+    )
+    opts = parser.parse_args()
+    return read_conf(opts.config_file)
+
+
+def main(conf: Latent | FNO):
+    index_range = (conf.start_index, conf.end_index)
+    save_file_path = conf.save_file_path
     save_file_path.mkdir(parents=True, exist_ok=True)
 
-    batch_size = int(args["batch_size"])
-    enc_dec_depth = int(args["enc_dec_depth"])
-    enc_dec_width = int(args["enc_dec_width"])
-    latent_depth = int(args["latent_depth"])
-    latent_width = int(args["latent_width"])
-    dataset_path = Path(args["dataset_path"])
-    weight_scale = float(args["weight_scale"])
-    weight_truncation = float(args["weight_truncation"])
-    shuffle_every_n_epochs = int(args["shuffle_every_n_epochs"])
-    weight_decay = float(args["weight_decay"])
-    latent_final_activation = str(args["latent_final_activation"])
-    latent_bottleneck = int(args["latent_bottleneck"])
+    dataset_path = str(conf.dataset_path)
+    split = conf.train_test_val_split
 
-    # Some hard-coded bits
-    train_split = args["train_split"]
-    test_split = args["test_split"]
-    val_split = args["val_split"]
+    input_features = read_as(conf.input_features_file, Features)
 
-    input_features = load_input_features(args["input_features_file"])
-    args["input_features"] = input_features
+    if conf.normalisations_file:
+        if conf.normalisations_file.exists():
+            normalization_parameters = read_as(conf.normalisations_file, Norms)
+        else:
+            logging.warning(
+                f"normalisations_file {conf.normalisations_file!r} not found; "
+                "using default (zero-mean, unit-std) normalization"
+            )
+            normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
+    else:
+        normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
 
-    normalization_parameters = {"iv": {}, "data": {}, "aux": {}}
-    if "normalisations_file" in args:
-        with open(args["normalisations_file"], "r") as fh:
-            normalization_parameters = yaml.safe_load(fh)
-
-    with open(args["input_features_file"], "r") as fh:
-        input_features = yaml.safe_load(fh)
-
-    # After parameters are set, get the information of the git repository.
-    args.update(get_git_info())
+    # # After parameters are set, get the information of the git repository.
+    # conf.update(get_git_info())
 
     # Load the dataframe with each of the model parameters.
-    model_indices = h5py_load(dataset_path, "model_ids", text=True)
+    model_indices: list[str] = text_from_h5(dataset_path, "model_ids")
 
     # Only select models that are longer than 32 timesteps.
     model_indices = filter_models_by_series_length(
-        args["minimal_timeseries_length"], model_indices, dataset_path
+        conf.minimal_timeseries_length, model_indices, dataset_path
     )
 
     # TODO: refactor to make this one effective function call instead of three seperate ones.
     train_indices, val_indices, test_indices = shuffle_and_split(
         model_indices=model_indices,
-        train_split=train_split,
-        val_split=val_split,
-        test_split=test_split,
+        train_split=split.train,
+        val_split=split.validate,
+        test_split=split.test,
     )
     # Loading data
     train_dataloader = PDRLoader(
-        dataset_path=dataset_path,
-        independent_variable=input_features["iv"],
-        data_features=input_features["data"],
-        auxiliary_features=input_features["aux"],
+        dataset_path=conf.dataset_path,
+        independent_variable=input_features.iv,
+        data_features=input_features.data,
+        auxiliary_features=input_features.aux,
         index_range=index_range,
         model_indices=train_indices,
-        batch_size=batch_size,
+        batch_size=conf.batch_size,
         stage="train",
-        independent_variable_normalization_kwargs=normalization_parameters["iv"],
-        features_normalization_kwargs=normalization_parameters["data"],
-        auxiliary_features_normalization_kwargs=normalization_parameters["aux"],
+        independent_variable_normalization_kwargs=asdict(normalization_parameters.iv),
+        features_normalization_kwargs=asdict(normalization_parameters.data),
+        auxiliary_features_normalization_kwargs=asdict(normalization_parameters.aux),
         collate_fn=pad_and_stack,
         batch_permutation_function=log_semi_sorter,
         use_cache=True,
-        batch_subsampling=args["training_batch_subsampling"],
+        batch_subsampling=conf.training_batch_subsampling,
     )
     val_dataloader = PDRLoader(
-        dataset_path=dataset_path,
-        independent_variable=input_features["iv"],
-        data_features=input_features["data"],
-        auxiliary_features=input_features["aux"],
+        dataset_path=conf.dataset_path,
+        independent_variable=input_features.iv,
+        data_features=input_features.data,
+        auxiliary_features=input_features.aux,
         index_range=index_range,
         model_indices=val_indices,
-        batch_size=batch_size,
+        batch_size=conf.batch_size,
         stage="val",
-        independent_variable_normalization_kwargs=normalization_parameters["iv"],
-        features_normalization_kwargs=normalization_parameters["data"],
-        auxiliary_features_normalization_kwargs=normalization_parameters["aux"],
+        independent_variable_normalization_kwargs=asdict(normalization_parameters.iv),
+        features_normalization_kwargs=asdict(normalization_parameters.data),
+        auxiliary_features_normalization_kwargs=asdict(normalization_parameters.aux),
         collate_fn=pad_and_stack,
         batch_permutation_function=log_semi_sorter,
         use_cache=True,
@@ -493,21 +514,22 @@ def main(args=None):
         )
 
     # add callbacks for various things.
-    save_weights_callback = SaveWeightCallback(save_file_path, args, 1)
-    plot_callback = OneBatchPlotter(save_file_path, args.get("plot_frequency", 1))
+    save_weights_callback = SaveWeightCallback(save_file_path, conf, 1)
+    plot_freq = int(os.environ.get("NEURALPDR_PLOT_FREQ", 1))
+    plot_callback = OneBatchPlotter(save_file_path, plot_freq)
     early_terminate_callback = EarlyTerminate(100, patience=10)
-    neptune_logger = NeptuneLogger(
-        args["neptune_project"], args, tags=args.get("neptune_tags")
-    )
+    # neptune_logger = NeptuneLogger(
+    #     conf["neptune_project"], conf, tags=conf.get("neptune_tags")
+    # )
 
     callbacks = {
         "batch_start": [],
-        "batch_end": [neptune_logger],
+        # "batch_end": [neptune_logger],
         "epoch_end": [
             save_weights_callback,
             plot_callback,
             early_terminate_callback,
-            neptune_logger,
+            # neptune_logger,
         ],
     }
 
@@ -531,62 +553,63 @@ def main(args=None):
 
     key = jax.random.PRNGKey(0)
     mlp_key, enc_key, dec_key = jax.random.split(key, 3)
-    latent_final_activation = {"tanh": jax.nn.tanh, "softplus": jax.nn.softplus}[
-        latent_final_activation
-    ]
-    if "checkpoint_file" in args:
+    if conf.checkpoint_file and conf.checkpoint_file.exists():
         enc_evolve_dec, hp = checkpoint_deserializer(
-            Path(args["save_file_path"]) / "hyperparameters.json",
-            args["checkpoint_file"],
+            Path(conf.save_file_path) / "hyperparameters.json",
+            conf.checkpoint_file,
         )
     else:
-        enc_evolve_dec = EncoderEvolveDecoder(
-            input_features["data"],
-            enc_dec_width,
-            enc_dec_depth,
-            latent_width,
-            latent_depth,
-            weight_scale,
-            weight_truncation,
-            keys=[mlp_key, enc_key, dec_key],
-            latent_bottleneck=latent_bottleneck,
-            n_aux_features=len(input_features["aux"]),
-            latent_final_activation=latent_final_activation,
-        )
+        match conf:
+            case Latent():
+                enc_evolve_dec = EncoderEvolveDecoder(
+                    input_features.data,
+                    conf.enc_dec_width,
+                    conf.enc_dec_depth,
+                    conf.width,
+                    conf.depth,
+                    conf.weight_scale,
+                    conf.weight_truncation,
+                    keys=[mlp_key, enc_key, dec_key],
+                    latent_bottleneck=conf.bottleneck,
+                    n_aux_features=len(input_features.aux),
+                    latent_final_activation=getattr(jax.nn, conf.final_activation),
+                )
+            case _:
+                raise RuntimeError(f"{conf.model}: not yet supported")
 
     # Scheduler:
     learning_rate_scheduler = []
     boundaries = []
     epochs = []
     timeseries_fractions = []
-    for scheme in args["learning_schemes"]:
-        if scheme["lr_scheduler"] == "constant":
+    for scheme in conf.learning_schemes:
+        if scheme.lr_scheduler == "constant":
             learning_rate_scheduler.append(
-                optax.constant_schedule(scheme["learning_rate"])
+                optax.constant_schedule(scheme.learning_rate)
             )
-            boundaries.append(scheme["epochs"] * len(train_dataloader))
-            epochs.append(scheme["epochs"])
-            timeseries_fractions.append(scheme["timeseries_fraction"])
-        elif scheme["lr_scheduler"] == "sgdr":
+            boundaries.append(scheme.epochs * len(train_dataloader))
+            epochs.append(scheme.epochs)
+            timeseries_fractions.append(scheme.timeseries_fraction)
+        elif scheme.lr_scheduler == "sgdr":
             learning_rate_scheduler.append(
                 optax.warmup_cosine_decay_schedule(
-                    init_value=0.1 * scheme["learning_rate"],
-                    peak_value=scheme["learning_rate"],
+                    init_value=0.1 * scheme.learning_rate,
+                    peak_value=scheme.learning_rate,
                     exponent=1e-1,
-                    warmup_steps=scheme["warmup_epochs"] * len(train_dataloader),
-                    decay_steps=scheme["epochs"] * len(train_dataloader),
+                    warmup_steps=scheme.warmup_epochs * len(train_dataloader),
+                    decay_steps=scheme.epochs * len(train_dataloader),
                 )
             )
-            boundaries.append(scheme["epochs"] * len(train_dataloader))
-            epochs.append(scheme["epochs"])
-            timeseries_fractions.append(scheme["timeseries_fraction"])
+            boundaries.append(scheme.epochs * len(train_dataloader))
+            epochs.append(scheme.epochs)
+            timeseries_fractions.append(scheme.timeseries_fraction)
         else:
             raise ValueError("Invalid learning rate scheme")
 
     # Only include learning rate schedules past our checkpoints:
-    if "checkpoint_epoch" in args:
-        if any(np.cumsum(epochs) > args["checkpoint_epoch"]):
-            idx = np.argmax(np.cumsum(epochs) > args["checkpoint_epoch"])
+    if conf.checkpoint_epoch > 0:
+        if any(np.cumsum(epochs) > conf.checkpoint_epoch):
+            idx = np.argmax(np.cumsum(epochs) > conf.checkpoint_epoch)
             learning_rate_scheduler = learning_rate_scheduler[idx:]
             boundaries = boundaries[idx:]
             epochs = epochs[idx:]
@@ -599,12 +622,14 @@ def main(args=None):
             timeseries_fractions,
         )
     boundaries = np.cumsum(boundaries)
-    learning_rate_scheduler = join_schedules(learning_rate_scheduler, boundaries)
+    learning_rate_scheduler = join_schedules(
+        learning_rate_scheduler, boundaries.tolist()
+    )
     # optim = optax.adamw(
-    #     learning_rate=learning_rate_scheduler, weight_decay=weight_decay
+    #     learning_rate=learning_rate_scheduler, weight_decay=conf.weight_decay
     # )
     optim = optax.inject_hyperparams(optax.adamw)(
-        learning_rate=learning_rate_scheduler, weight_decay=weight_decay
+        learning_rate=learning_rate_scheduler, weight_decay=conf.weight_decay
     )
     optim = optax.chain(optax.clip_by_global_norm(1.0), optim)
     opt_state = optim.init(eqx.filter(enc_evolve_dec, eqx.is_array))
@@ -619,7 +644,7 @@ def main(args=None):
         save_file_path=save_file_path,
         optim=optim,
         multi_objective_loss_scheduler=multi_objective_loss_scheduler,
-        shuffle_every_n_epochs=shuffle_every_n_epochs,
+        shuffle_every_n_epochs=conf.shuffle_every_n_epochs,
         callbacks=callbacks,
         sharding=sharding,
     )
@@ -627,4 +652,5 @@ def main(args=None):
 
 
 if __name__ in "__main__":
-    main()
+    conf = get_config()
+    main(conf)

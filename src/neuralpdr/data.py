@@ -1,29 +1,27 @@
-import gc
+from functools import reduce
 import json
 import logging
 import pickle
 from pathlib import Path
-from typing import Union
+from typing import Callable, Sequence
 
 import h5py
-import jax
+from jaxtyping import Array
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
-from jax._src.lib import xla_client
-from joblib import Parallel, delayed
-from scipy.interpolate import make_smoothing_spline
 from tqdm import tqdm
 
 
-def h5py_load(dataset_path, key, return_dataframe=False, columns=None, text=False):
-    with h5py.File(dataset_path, "r") as f:
-        data = f[key][:]
-    if text:
-        data = [i.decode("utf-8") for i in data]
-    if return_dataframe:
-        data = pd.DataFrame(data, columns=columns)
-    return data
+def text_from_h5(dataset_path: str | Path, key: str) -> list[str]:
+    with h5py.File(str(dataset_path), "r") as h5f:
+        return [i.decode("utf-8") for i in h5f[key][:]]
+
+
+def df_from_h5(dataset_path: str | Path, key: str, columns=None) -> pd.DataFrame:
+    with h5py.File(str(dataset_path), "r") as h5f:
+        return pd.DataFrame(h5f[key][:], columns=columns)
 
 
 class PDRLoader:
@@ -33,20 +31,22 @@ class PDRLoader:
         independent_variable: str,
         data_features: list[str],
         auxiliary_features: list[str],
-        index_range: tuple[int],
+        index_range: tuple[int, int | None],
         model_indices: list[str],
-        model_df: pd.DataFrame = None,
+        model_df: pd.DataFrame | None = None,
         batch_size: int = 16,
         stage: str = "",
         independent_variable_normalization_kwargs: dict = {},
         features_normalization_kwargs: dict = {},
         auxiliary_features_normalization_kwargs: dict = {},
-        batch_permutation_function: callable = None,
-        collate_fn: callable = lambda x: np.stack(x, axis=0),
-        load_first_n_keys: int = None,
+        batch_permutation_function: Callable | None = None,
+        collate_fn: Callable[
+            [Sequence[npt.ArrayLike]], np.ndarray
+        ] = lambda x: np.stack(x, axis=0),
+        load_first_n_keys: int | None = None,
         drop_last: bool = True,
         use_cache: bool = False,
-        batch_subsampling: Union[int, float] = None,
+        batch_subsampling: int | float | None = None,
     ) -> None:
         """Dataloader for the PDR dataset
 
@@ -73,10 +73,13 @@ class PDRLoader:
         self.auxilary_features = auxiliary_features
         self.model_df = model_df
         self.start_index, self.end_index = index_range
-        self.timeseries_length = self.end_index - self.start_index
+        # timeseries_length is set after load_data() when end_index is None
+        self.timeseries_length: int | None = (
+            None if self.end_index is None else self.end_index - self.start_index
+        )
         self.batch_size = batch_size
         self.model_indices = model_indices
-        self.normalization_parameters = {}
+        self.normalization_parameters: dict[str, dict[str, float | np.ndarray]] = {}
         self.stage = stage
         self.key_template = "{model}/pdr"
         self.batch_permutation_function = batch_permutation_function
@@ -90,12 +93,12 @@ class PDRLoader:
         self.dynamic_end_index = None
 
         if not self.model_indices:
-            self.model_indices = h5py_load(dataset_path, "model_ids", text=True)
+            self.model_indices = text_from_h5(dataset_path, "model_ids")
             if self.load_first_n_keys:
                 self.model_indices = self.model_indices[: self.load_first_n_keys]
         # if self.subsample_function:
         #     self.model_indices = self.subsample_function(dataset_path, self.model_indices)
-        self.data_header: list[str] = h5py_load(dataset_path, "header", text=True)
+        self.data_header: list[str] = text_from_h5(dataset_path, "header")
         self.index_independent_variable: list[int] = self.get_indices_from_header(
             self.data_header, [independent_variable]
         )
@@ -110,33 +113,40 @@ class PDRLoader:
         self.n_data_features = len(self.indices_features)
 
         # Create dicts that store the data in memory, to allow for easy reshuffling on the fly.
-        self.feature_data_by_model: dict[str, np.array] = {}
-        self.independent_data_by_model: dict[str, np.array] = {}
-        self.auxiliary_data_by_model: dict[str, np.array] = {}
+        self.feature_data_by_model: dict[str, np.ndarray] = {}
+        self.independent_data_by_model: dict[str, np.ndarray] = {}
+        self.auxiliary_data_by_model: dict[str, np.ndarray] = {}
 
         # Create lists to store the batched data, or an array of jax data with shape (n_batches, batch_size, av_points, n_features)
-        self.batched_feature_data: list[np.array] = []
-        self.batched_independent_data: list[np.array] = []
-        self.batched_auxiliary_data: list[np.array] = []
+        self.batched_feature_data: list[np.ndarray] = []
+        self.batched_independent_data: list[np.ndarray] = []
+        self.batched_auxiliary_data: list[np.ndarray] = []
         # Store all the names of each of the samples in a list
         self.batched_indices: list[list] = []
 
         # Load all the data into memory
         self.load_data()
 
+        # When end_index is None we use all available timesteps; derive the
+        # series length from the loaded data so set_timeseries_fraction works.
+        if self.timeseries_length is None:
+            self.timeseries_length = max(
+                len(v) for v in self.feature_data_by_model.values()
+            )
+
         # Apply the normalization to the data
         # TODO: add saved normalisation parameters.
         self.independent_series = self.normalize(
             self.independent_data_by_model,
-            type="iv",
+            type_="iv",
             **independent_variable_normalization_kwargs,
         )
         self.feature_series = self.normalize(
-            self.feature_data_by_model, type="data", **features_normalization_kwargs
+            self.feature_data_by_model, type_="data", **features_normalization_kwargs
         )
         self.auxiliary_series = self.normalize(
             self.auxiliary_data_by_model,
-            type="aux",
+            type_="aux",
             **auxiliary_features_normalization_kwargs,
         )
 
@@ -173,20 +183,20 @@ class PDRLoader:
         """Load data from disk into memory."""
         NEED_TO_LOAD = True
         # Load the data from the dataset
+        cache_path = Path(
+            f"{self.dataset_path.with_suffix('')}_{self.stage}_{len(self.model_indices)}.pickle"
+        )
         if self.use_cache:
-            cache_path = Path(
-                f"{self.dataset_path.with_suffix('')}_{self.stage}_{len(self.model_indices)}.pickle"
-            )
             if cache_path.exists():
-                for a in tqdm((range(1))):
+                for _ in tqdm((range(1))):
                     print("Trying to use cache files")
                     # TODO: add try-except block here.
                     with open(cache_path, "rb") as fh:
                         pickle_dict = pickle.load(fh)
                         model_indices = pickle_dict["model_indices"]
-                        assert model_indices == self.model_indices, (
-                            "The model indices in the cache do not match the model indices in the dataset"
-                        )
+                        if model_indices != self.model_indices:
+                            msg = "The model indices in the cache do not match the model indices in the dataset"
+                            raise RuntimeError(msg)
                         self.independent_data_by_model = pickle_dict[
                             "independent_data_by_model"
                         ]
@@ -242,87 +252,89 @@ class PDRLoader:
 
     def normalize(
         self,
-        dataset: list[np.array],
-        type: str,
-        mean: Union[float, np.array] = None,
-        std: Union[float, np.array] = None,
-        eps: Union[float, np.array] = 1e-20,
+        dataset: dict[str, np.ndarray],
+        type_: str,
+        mean: float | np.ndarray | None = None,
+        std: float | np.ndarray | None = None,
+        eps: float | np.ndarray = 1e-20,
     ):
         """Add a small epsilon, log transform it and then standardize it
 
         Args:
-            dataset (list[np.array]): List of numpy arrays to normalize
-            type (str, optional): Choose between normalizing "data", "aux" or "iv".
-            mean (Union[float, np.array], optional): Mean for standardization, must either be scalar or the same shape as the last dimension of the data
-            std (float, optional): Standard deviation for standardization, must either be scalar or the same shape as the last dimension of the data
-            eps (float, optional): Small epsilon to add to the data. Defaults to 1e-20.
+            dataset (list[np.ndarray]): List of numpy arrays to normalize
+            type_ (str, optional): Choose between normalizing "data", "aux" or "iv".
+            mean (float | np.ndarray, optional): Mean for standardization, must either be scalar or the same shape as the last dimension of the data
+            std (float| np.ndarray, optional): Standard deviation for standardization, must either be scalar or the same shape as the last dimension of the data
+            eps (float| np.ndarray, optional): Small epsilon to add to the data. Defaults to 1e-20.
         """
-        assert (mean is None) == (std is None), (
-            "Either both mean and std must be provided or neither."
-        )
+        if (mean is None and std is not None) or (mean is not None and std is None):
+            raise RuntimeError("Either both mean and std must be provided or neither.")
+
         if mean is None:
             statistics_shape = {
                 "data": (len(dataset), self.n_data_features),
                 "aux": (len(dataset), self.n_aux_features),
                 "iv": (len(dataset)),
             }
-            sample_lengths = np.zeros(len(dataset))
-            means = np.zeros(statistics_shape[type])
-            vars = np.zeros(statistics_shape[type])
+            sample_lengths: np.ndarray = np.zeros(len(dataset))
+            means: np.ndarray = np.zeros(statistics_shape[type_])
+            vars_: np.ndarray = np.zeros(statistics_shape[type_])
             print("Computing statistics for normalization")
             for idx, data in tqdm(enumerate(dataset.values())):
                 sample_lengths[idx] = len(data)
                 data = np.log10(data + eps)
                 # Compute the statistics, but mask the data at the lower boundary.
-                means[idx], vars[idx] = (
+                means[idx], vars_[idx] = (
                     np.mean(np.ma.masked_values(data, eps), axis=0),
                     np.var(np.ma.masked_values(data, eps), axis=0),
                 )
             # TODO: take the weighted mean and variance here.
-            mean = np.average(means, axis=0, weights=sample_lengths)
+            mean: np.ndarray = np.average(means, axis=0, weights=sample_lengths)
             # Approximate the standard deviation over each features by adding the variance of the means and the mean of the variances.
-            std = np.sqrt(np.mean(vars, axis=0) + np.var(means, axis=0))
+            std: np.ndarray = np.sqrt(np.mean(vars_, axis=0) + np.var(means, axis=0))
             if std.any() < 1e-30:
                 raise ValueError(
                     f"Standard deviation cannot be 0, it is for indices {np.where(std == 1e-30)}"
                 )
         # Save the mean and std for later use
-        self.normalization_parameters[type] = {"mean": mean, "std": std, "eps": eps}
+        self.normalization_parameters[type_] = {"mean": mean, "std": std, "eps": eps}
         # Apply the transformation to the data
         for key in dataset:
             dataset[key] = (np.log10(dataset[key] + eps) - mean) / std
         return dataset
 
-    def get_normalization(self) -> dict[str, dict[str, Union[float, np.array]]]:
+    def get_normalization(self) -> dict[str, dict[str, float | np.ndarray]]:
         """Get the normalization parameters for the data and av
 
         Returns:
-            dict[str, dict[str, Union[float, np.array]]]: Dictionary with the normalization parameters
+            dict[str, dict[str, float | np.ndarray]]: Dictionary with the normalization parameters
         """
         return self.normalization_parameters
 
-    def inv_normalize(self, data: np.array, series_key: str) -> np.array:
+    def inv_normalize(self, data: np.ndarray, series_key: str) -> np.ndarray:
         """Inverts the normalization process for the visual extinction data.
 
         Args:
-            data (np.array): Array of visual extinction data that is normalized
+            data (np.ndarray): Array of visual extinction data that is normalized
 
         Returns:
-            np.array:  Visual extinction data is original coordinates
+            np.ndarray:  Visual extinction data is original coordinates
         """
         mean = np.array(self.normalization_parameters[series_key]["mean"])
         std = np.array(self.normalization_parameters[series_key]["std"])
         return data * std + mean
 
-    def get_data(self) -> tuple[dict[str, np.array], dict[str, np.array]]:
+    def get_data(
+        self,
+    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
         """Return the data and av dictionaries
 
         Returns:
-            tuple[dict[str, np.array], dict[str, np.array]]: Tuple with the data and av dictionaries
+            tuple[dict[str, np.ndarray], dict[str, np.ndarray]]: Tuple with the data and av dictionaries
         """
         return self.independent_series, self.feature_series, self.auxiliary_series
 
-    def create_batches(self, model_indices=None) -> None:
+    def create_batches(self, model_indices: list[str] | None = None) -> None:
         """Create the batches of data and av"""
         if model_indices is None:
             model_indices = self.model_indices
@@ -357,6 +369,7 @@ class PDRLoader:
 
         # Iterate over the grouped model indices and create the batches
         for batch_indices in batch_indices_lil:
+            # FIXME: is this function call correct?
             batch_data, batch_aux, batch_iv = self.collate_fn(
                 [self.feature_data_by_model[idx] for idx in batch_indices],
                 [self.auxiliary_data_by_model[idx] for idx in batch_indices],
@@ -396,11 +409,13 @@ class PDRLoader:
 
     def get_all_batches(
         self,
-    ) -> tuple[Union[list[np.array], jnp.array], Union[list[np.array], jnp.array]]:
+    ) -> tuple[
+        list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array
+    ]:
         """Get all the batches of data and av
 
         Returns:
-            tuple[Union[list[np.array], jnp.array], Union[list[np.array], jnp.array]]: Tuple with the batched av and data
+            tuple[list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array]: Tuple with the batched av and data
         """
         return (
             self.batched_independent_data,
@@ -408,7 +423,7 @@ class PDRLoader:
             self.batched_auxiliary_data,
         )
 
-    def get_batch_keys(self) -> list[list]:
+    def get_batch_keys(self) -> list[list[str]]:
         """Get the keys of the batches
 
         Returns:
@@ -416,7 +431,7 @@ class PDRLoader:
         """
         return self.model_indices_per_batch
 
-    def set_timeseries_fraction(self, frac: Union[float, int]) -> None:
+    def set_timeseries_fraction(self, frac: float | int) -> None:
         """Set the fraction of the timeseries to load
 
         Args:
@@ -425,7 +440,7 @@ class PDRLoader:
         print("trying to set the next fraction index with frac", frac)
         if frac == 1.0 or frac is None:
             self.dynamic_end_index = None
-        if isinstance(frac, float):
+        elif isinstance(frac, float):
             # Set the end index to the fraction of the timeseries length
             self.dynamic_end_index = np.ceil(frac * self.timeseries_length).astype(int)
         elif isinstance(frac, int):
@@ -438,7 +453,7 @@ class PDRLoader:
 
     def shuffle_batches(self) -> None:
         """Shuffle the batches of data and av"""
-        logging.debug(f"Shuffling the batches of data and av")
+        logging.debug("Shuffling the batches of data and av")
         if self.batch_permutation_function is not None:
             self.model_indices = self.batch_permutation_function(
                 self.model_indices, self.feature_data_by_model
@@ -459,7 +474,7 @@ class PDRLoader:
             else:
                 raise ValueError(
                     "Batch subsampling must be either a float or an integer"
-                ).tolist()
+                )
             # Reload the data with the sub batching
             self.create_batches(model_indices)
         else:
@@ -475,14 +490,16 @@ class PDRLoader:
 
     def __getitem__(
         self, idx: int
-    ) -> tuple[Union[list[np.array], jnp.array], Union[list[np.array], jnp.array]]:
+    ) -> tuple[
+        list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array
+    ]:
         """Get the batched data and av at a given batch index, returning them as jax arrays or list of arrays
 
         Args:
             idx (int): Index of the batch
 
         Returns:
-            tuple[Union[list[np.array], jnp.array], Union[list[np.array], jnp.array]]: Tuple with the batched av and data
+            tuple[list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array]: Tuple with the batched av and data
         """
         return (
             self.batched_independent_data[idx],
@@ -503,7 +520,7 @@ class PDRLoader:
 def shuffle_and_split(
     *,
     df: pd.DataFrame = None,
-    model_indices: list = None,
+    model_indices: list | None = None,
     train_split: float = 0.7,
     val_split: float = 0.15,
     test_split: float = 0.15,
@@ -519,18 +536,18 @@ def shuffle_and_split(
     Returns:
         tuple[list[str], list[str], list[str]]: The list of model indices for the training, validation and test sets
     """
-    assert df is not None or model_indices is not None, (
-        "Either a dataframe or a list of model indices must be provided"
-    )
+    if df is None and model_indices is None:
+        msg = "Either a dataframe or a list of model indices must be provided"
+        raise RuntimeError(msg)
     if df is not None:
-        model_indices = df.index.to_numpy()
+        model_indices = df.index.to_list()
+    assert model_indices
     np.random.seed(1234)
     np.random.shuffle(model_indices)
     num_models = len(model_indices)
-    assert train_split + val_split + test_split == 1
     border1 = int(num_models * train_split)
     border2 = int(num_models * (train_split + val_split))
-    if df:
+    if df is not None:
         return df.iloc[0:border1], df.iloc[border1:border2], df.iloc[border2:]
     else:
         return (
@@ -563,15 +580,15 @@ def pad_and_stack(*batches, random_sample_number=None):
     """Pad and stack the batch of data
 
     Args:
-        batch (list[np.array]): List of numpy arrays to stack
+        batch (list[np.ndarray]): List of numpy arrays to stack
 
     Returns:
-        np.array: Stacked numpy array
+        np.ndarray: Stacked numpy array
     """
-    for _batch in batches:
-        assert len(_batch) == len(batches[0]), (
-            "All arrays in the batch must have the same length"
-        )
+    if not reduce(lambda i, j: j if i == j else False, map(len, batches)):
+        msg = "All arrays in the batch must have the same length"
+        raise ValueError(msg)
+
     lengths = np.array([len(data) for data in batches[0]], dtype=int)
     if random_sample_number is not None and random_sample_number > 0:
         random_starts = np.random.uniform(size=lengths.shape[0])
@@ -616,8 +633,10 @@ def log_semi_sorter(model_indices, feature_data_by_model, log_noise_parameter=0.
     return sorted_indices
 
 
-def filter_models_by_series_length(length, model_indices, dataset_path):
-    with h5py.File(dataset_path, "r") as fh:
+def filter_models_by_series_length(
+    length: int, model_indices: list[str], dataset_path: str | Path
+):
+    with h5py.File(str(dataset_path), "r") as fh:
         model_indices = [
             model for model in model_indices if fh[model + "/pdr"].shape[0] >= length
         ]

@@ -1,0 +1,70 @@
+save_file_path = "results/v3_bn_8_bs_64"
+neptune_project = "AutoChemulator/3dpdr-v3"
+dataset_path = "/projects/1/prjs1344/v3/step_split_1_smooth.h5"
+input_features_file = "configs/v3/features/input_features.toml"
+normalisations_file = "configs/v3/features/normalisations/default.toml"
+start_index = 0
+end_index = -1
+minimal_timeseries_length = 48
+aux_features = true
+training_batch_subsampling = 1.0
+batch_size = 64
+enc_dec_depth = 3
+enc_dec_width = 512
+weight_scale = 1.0
+weight_truncation = 10.0
+shuffle_every_n_epochs = 1
+epochs_per_partial_timeseries = 200
+weight_decay = 0.0001
+model = "latent"
+depth = 3
+width = 512
+bottleneck = 8
+final_activation = "tanh"
+
+[train_test_val_split]
+train = 0.7
+validate = 0.15
+test = 0.15
+
+[[learning_schemes]]
+timeseries_fraction = 32
+epochs = 5
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.0003
+
+[[learning_schemes]]
+timeseries_fraction = 64
+epochs = 5
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.0003
+
+[[learning_schemes]]
+timeseries_fraction = 128
+epochs = 10
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.0003
+
+[[learning_schemes]]
+timeseries_fraction = 256
+epochs = 10
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.0003
+
+[[learning_schemes]]
+timeseries_fraction = 512
+epochs = 10
+lr_scheduler = "sgdr"
+warmup_epochs = 2
+learning_rate = 0.0003
+
+[[learning_schemes]]
+timeseries_fraction = 1.0
+epochs = 60
+lr_scheduler = "sgdr"
+warmup_epochs = 5
+learning_rate = 0.0003
