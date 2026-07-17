@@ -337,12 +337,10 @@ def train(
     fracs: list[float],
     train_loader: PDRLoader,
     val_loader: PDRLoader,
-    shuffle_every_n_epochs: int | None = None,
-    save_file_path: Path | None = None,
-    optim: optax.GradientTransformation = None,
-    multi_objective_loss_scheduler: Callable = None,
-    callbacks={},
-    sharding: jax.sharding.Sharding = None,
+    optim: optax.GradientTransformation,
+    multi_objective_loss_scheduler: Callable | None = None,
+    callbacks: dict[str, list[Callable]] = {},
+    sharding: jax.sharding.Sharding | None = None,
 ):
     """Train the NeuralODE
 
@@ -353,12 +351,8 @@ def train(
         fracs (list[float]): List of fractions for visual extinctions.
         train_loader (PDRLoader): The data loader for training data.
         val_loader (PDRLoader): The data loader for validation data.
-        shuffle_every_n_epochs (int, optional): Number of epochs after which to shuffle the training data. Defaults to None.
-        loss_type (str, optional): Type of loss function to use. Defaults to None.
-        visualize (bool, optional): Whether to visualize the training progress. Defaults to True.
-        save_file_path (Path, optional): Path to save the training progress. Defaults to None.
         optim (optax.GradientTransformation, optional): The optimizer to use. Defaults to None.
-        end_of_epoch_callback (Callable, optional): Callback function to execute at the end of each epoch. Defaults to None.
+        callbacks (dict[str, list[Callable]], optional): Callback functions to execute at different parts of each epoch. Defaults to empty.
     """
     # For training on specific chunks of the dataset to avoid getting caught in local minima
     epoch_checkpoints_a = [1] + list(np.cumsum(epochs, dtype=int)[:-1] + 1)
@@ -523,7 +517,7 @@ def main(conf: Latent | FNO):
     #     conf["neptune_project"], conf, tags=conf.get("neptune_tags")
     # )
 
-    callbacks = {
+    callbacks: dict[str, list[Callable]] = {
         "batch_start": [],
         # "batch_end": [neptune_logger],
         "epoch_end": [
@@ -641,10 +635,8 @@ def main(conf: Latent | FNO):
         timeseries_fractions,
         train_dataloader,
         val_dataloader,
-        save_file_path=save_file_path,
         optim=optim,
         multi_objective_loss_scheduler=multi_objective_loss_scheduler,
-        shuffle_every_n_epochs=conf.shuffle_every_n_epochs,
         callbacks=callbacks,
         sharding=sharding,
     )
