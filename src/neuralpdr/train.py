@@ -7,12 +7,12 @@ from dataclasses import asdict
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TypeAlias
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Scalar, Float
+from jaxtyping import Float, Integer, Scalar
 import numpy as np
 import optax
 from jax.experimental import mesh_utils
@@ -145,7 +145,7 @@ def grad_loss(
 @eqx.filter_jit
 def grad_loss_only(
     model: eqx.Module, batch_iv: jax.Array, batch_data: jax.Array, batch_aux: jax.Array
-) -> jax.Array:
+) -> Scalar:
     """Compute the loss function for the NeuralODE.
 
     Args:
@@ -168,6 +168,9 @@ def grad_loss_only(
     return jnp.mean(valid_mask * (pred_batch_data - batch_data[:, :, :]) ** 2)
 
 
+ScalarInt: TypeAlias = Integer[jax.Array, ""]
+
+
 @eqx.filter_jit(donate="all")
 def make_step(
     model: eqx.Module,
@@ -177,7 +180,18 @@ def make_step(
     batch_data: jax.Array,
     batch_aux: jax.Array,
     loss_weights: jax.Array = jnp.array([1.0, 1.0, 1.0]),
-) -> tuple[jax.Array, eqx.Module, optax.OptState, Any, Any, Any, Any, Any, Any, Any]:
+) -> tuple[
+    Scalar,
+    eqx.Module,
+    optax.OptState,
+    ScalarInt,
+    ScalarInt,
+    ScalarInt,
+    ScalarInt,
+    Scalar,
+    Scalar,
+    Scalar,
+]:
     """Make a step in the optimization process.
 
     Args:
