@@ -7,11 +7,12 @@ from dataclasses import asdict
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from jaxtyping import Scalar, Float
 import numpy as np
 import optax
 from jax.experimental import mesh_utils
@@ -86,7 +87,7 @@ def grad_loss(
     batch_data: jax.Array,
     batch_aux: jax.Array,
     weight_per_loss: jax.Array = jnp.array([1.0, 1.0, 1.0]),
-) -> jax.Array:
+) -> tuple[jax.Array, jax.Array]:
     """Compute the loss function for the NeuralODE.
 
     Args:
@@ -104,7 +105,7 @@ def grad_loss(
         batch_iv: jax.Array,
         batch_data: jax.Array,
         batch_aux: jax.Array,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    ) -> jax.Array:
         pred_y, evolved_z, auto_y, direct_z, steps = eqx.filter_vmap(
             model, in_axes=(0, 0, 0), out_axes=0
         )(batch_iv[:, :, 0], batch_data, batch_aux)
@@ -176,7 +177,7 @@ def make_step(
     batch_data: jax.Array,
     batch_aux: jax.Array,
     loss_weights: jax.Array = jnp.array([1.0, 1.0, 1.0]),
-) -> tuple[jax.Array, eqx.Module, optax.OptState]:
+) -> tuple[jax.Array, eqx.Module, optax.OptState, Any, Any, Any, Any, Any, Any, Any]:
     """Make a step in the optimization process.
 
     Args:
@@ -228,10 +229,10 @@ def do_epoch(
     opt_state: optax.OptState,
     train_loader,
     val_loader,
-    callbacks: dict[str, list[Callable]] = None,
-    multi_objective_scheduler: Callable = None,
-    sharding: jax.sharding.Sharding = None,
-) -> tuple[float, float, eqx.Module, optax.OptState]:
+    callbacks: dict[str, list[Callable]],
+    multi_objective_scheduler: Callable | None = None,
+    sharding: jax.sharding.Sharding | None = None,
+) -> tuple[Scalar, Scalar, eqx.Module, optax.OptState]:
     """Perform an epoch of training on the NeuralODE.
 
     Args:
@@ -320,13 +321,12 @@ def do_epoch(
                     },
                 )
 
-    train_loss = jnp.mean(train_losses)
     val_losses = jnp.zeros((len(val_loader),))
     for idx, (iv, data, aux) in enumerate(val_loader):
         if sharding:
             iv, data, aux = jax.device_put((iv, data, aux), sharding)
         val_losses = val_losses.at[idx].set(grad_loss_only(mlp, iv, data, aux))
-    return train_loss, jnp.mean(val_losses), mlp, opt_state
+    return jnp.mean(train_losses), jnp.mean(val_losses), mlp, opt_state
 
 
 # Function to train the NeuralODE
@@ -364,7 +364,8 @@ def train(
     epoch_checkpoints_a = [1] + list(np.cumsum(epochs, dtype=int)[:-1] + 1)
     epoch_checkpoints_b = list(np.cumsum(epochs, dtype=int))
 
-    train_loss, val_loss = 0.0, 0.0
+    train_loss: Scalar = jnp.array(0.0)
+    val_loss: Scalar = jnp.array(0.0)
     for frac, epoch_a, epoch_b in zip(fracs, epoch_checkpoints_a, epoch_checkpoints_b):
         train_loader.set_timeseries_fraction(frac)
         val_loader.set_timeseries_fraction(frac)
@@ -621,9 +622,8 @@ def main(conf: Latent | FNO):
             epochs,
             timeseries_fractions,
         )
-    boundaries = np.cumsum(boundaries)
     learning_rate_scheduler = join_schedules(
-        learning_rate_scheduler, boundaries.tolist()
+        learning_rate_scheduler, np.cumsum(boundaries).tolist()
     )
     # optim = optax.adamw(
     #     learning_rate=learning_rate_scheduler, weight_decay=conf.weight_decay
