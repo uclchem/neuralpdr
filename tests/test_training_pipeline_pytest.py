@@ -17,12 +17,14 @@ TEST_DATASETS = {
     "v1": PROJECT_ROOT / "data" / "test" / "3dpdr_dataset_v1_test.h5",
     "v2": PROJECT_ROOT / "data" / "test" / "3dpdr_dataset_v2_test.h5",
     "v3": PROJECT_ROOT / "data" / "test" / "3dpdr_dataset_v3_test.h5",
+    "v4": PROJECT_ROOT / "data" / "test" / "3dpdr_dataset_v4_test.h5",
 }
 
 BASE_CONFIGS = {
     "v1": PROJECT_ROOT / "configs" / "v1" / "ml4ps_paper" / "mlps_model_1.toml",
     "v2": PROJECT_ROOT / "configs" / "v2" / "base.toml",
     "v3": PROJECT_ROOT / "configs" / "v3" / "base.toml",
+    "v4": PROJECT_ROOT / "configs" / "v4" / "base.toml",
 }
 
 
@@ -69,7 +71,7 @@ def create_test_config(base_config_path: Path, tmp_dir: Path, version: str):
     return config, test_config_path
 
 
-@pytest.mark.parametrize("version", ["v1", "v2", "v3"])
+@pytest.mark.parametrize("version", ["v1", "v2", "v3", "v4"])
 def test_training_pipeline_integration(version, tmp_path: Path):
     """Integration test that mirrors running `python src/neuralpdr/train.py config.yaml`.
 

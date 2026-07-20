@@ -7,6 +7,7 @@
 #   --skip-v1    Skip v1 processing
 #   --skip-v2    Skip v2 processing
 #   --skip-v3    Skip v3 processing
+#   --skip-v4    Skip v4 processing
 #   --help       Show this help message
 
 set -e  # Exit on error
@@ -18,6 +19,7 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"  # Up two levels: data/ the
 SKIP_V1=false
 SKIP_V2=false
 SKIP_V3=false
+SKIP_V4=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,6 +35,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_V3=true
             shift
             ;;
+        --skip-v4)
+            SKIP_V4=true
+            shift
+            ;;
         --help)
             echo "Usage: ./workflow_setup_all.sh [options]"
             echo ""
@@ -40,6 +46,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-v1    Skip v1 processing"
             echo "  --skip-v2    Skip v2 processing"
             echo "  --skip-v3    Skip v3 processing"
+            echo "  --skip-v4    Skip v4 processing"
             echo "  --help       Show this help message"
             exit 0
             ;;
@@ -103,6 +110,20 @@ if [ "$SKIP_V3" = false ]; then
 else
     echo ""
     echo "⏭️  Skipping v3 processing"
+fi
+
+# Process v4
+if [ "$SKIP_V4" = false ]; then
+    echo ""
+    echo "╔════════════════════════════════╗"
+    echo "║  Processing v4 Dataset         ║"
+    echo "╚════════════════════════════════╝"
+
+    chmod +x "$SCRIPT_DIR/workflow_v4.sh"
+    "$SCRIPT_DIR/workflow_v4.sh"
+else
+    echo ""
+    echo "⏭️  Skipping v4 processing"
 fi
 
 # Summary

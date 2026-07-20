@@ -1,0 +1,3 @@
+iv = "visual_extinction"
+data = ["H3+", "He+", "H2+", "O2", "CH5+", "CH4+", "O+", "OH+", "C+", "CH4", "H2O+", "H3O+", "CO+", "O2+", "CH2", "H2O", "H+", "CH3+", "CH", "CH3", "HCO+", "CH2+", "C", "He", "CH+", "CO", "OH", "O", "H2", "H", "e-"]
+aux = ["visual_extinction", "tgas", "tdust", "density", "radfield"]

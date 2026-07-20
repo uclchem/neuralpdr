@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Create minimal versions of v1, v2, v3 datasets for testing in CI.
+Create minimal versions of v1, v2, v3, v4 datasets for testing in CI.
 
 This script extracts a small subset of models from each full dataset to create
 lightweight test datasets that can be committed to the repository.
@@ -19,9 +19,11 @@ Output:
     data/test/3dpdr_dataset_v1_test.h5
     data/test/3dpdr_dataset_v2_test.h5
     data/test/3dpdr_dataset_v3_test.h5
+    data/test/3dpdr_dataset_v4_test.h5
 """
 
 import argparse
+import random
 from pathlib import Path
 
 import h5py
@@ -46,7 +48,26 @@ DATASETS = {
         "input": DATA_DIR / "3dpdr_dataset_v3.h5",
         "output": TEST_DIR / "3dpdr_dataset_v3_test.h5",
     },
+    "v4": {
+        "input": DATA_DIR / "3dpdr_dataset_v4.h5",
+        "output": TEST_DIR / "3dpdr_dataset_v4_test.h5",
+    },
 }
+
+
+def select_models(model_keys, n_models):
+    """Randomly sample up to n_models keys.
+
+    A first-N slice would bias v4's test fixture toward axis-aligned models
+    (written first) and, within those, toward one corner of the grid - random
+    sampling over the full key list avoids that for free, without needing to
+    know anything about how a given dataset version names or orders its models.
+    Seeded for reproducible test fixtures across regenerations.
+    """
+    if n_models >= len(model_keys):
+        return model_keys
+    random.seed(0)
+    return random.sample(model_keys, n_models)
 
 
 def create_minimal_dataset(
@@ -89,8 +110,8 @@ def create_minimal_dataset(
 
         print(f"  Total models in source: {len(model_keys)}")
 
-        # Select first n_models
-        selected_models = model_keys[:n_models]
+        # Select n_models, balanced across model "families" if more than one is present
+        selected_models = select_models(model_keys, n_models)
         print(f"  Selected {len(selected_models)} models")
 
         with h5py.File(output_path, "w") as f_out:

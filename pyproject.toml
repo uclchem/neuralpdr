@@ -39,6 +39,7 @@ dependencies = [
     "pandas",
     "pydantic",
     "pytest",
+    "scipy",
     "ray",
     "tomlkit",
     "tqdm",
