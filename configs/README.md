@@ -73,7 +73,8 @@ learning_schemes:                           # Multi-stage training schedule
 ### Output Configuration
 ```yaml
 save_file_path: "results/experiment_name"   # Output directory
-neptune_project: "workspace/project-name"   # Neptune logging project
+mlflow_experiment_name: "workspace/project-name"   # MLflow experiment name
+mlflow_tracking_uri: "http://localhost:5000"       # MLflow tracking server URI (optional)
 ```
 
 ### Optional Fields

@@ -20,7 +20,8 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from neuralpdr.callbacks import (
     EarlyTerminate,
-    # NeptuneLogger,
+    LogModelWeightNorms,
+    MlflowLogger,
     OneBatchPlotter,
     SaveWeightCallback,
 )
@@ -299,7 +300,7 @@ def do_epoch(
                     step=step,
                     mlp=mlp,
                     train_loss=train_value,
-                    neptune_metrics={
+                    mlflow_metrics={
                         "nan_count": nan_count,
                         "step": step,
                         "epoch": epoch,
@@ -401,7 +402,7 @@ def train(
                         val_loss=val_loss,
                         train_loader=train_loader,
                         val_loader=val_loader,
-                        neptune_metrics={
+                        mlflow_metrics={
                             "train_loss": train_loss,
                             "val_loss": val_loss,
                             "learning_rate": learning_rate,
@@ -518,18 +519,24 @@ def main(conf: Latent | FNO):
     plot_freq = int(os.environ.get("NEURALPDR_PLOT_FREQ", 1))
     plot_callback = OneBatchPlotter(save_file_path, plot_freq)
     early_terminate_callback = EarlyTerminate(100, patience=10)
-    # neptune_logger = NeptuneLogger(
-    #     conf["neptune_project"], conf, tags=conf.get("neptune_tags")
-    # )
+    mlflow_logger = MlflowLogger(
+        conf.mlflow_experiment_name,
+        conf,
+        tracking_uri=conf.mlflow_tracking_uri,
+        name=conf.mlflow_run_name,
+        tags=conf.mlflow_tags,
+    )
+    weight_norm_callback = LogModelWeightNorms(mlflow_logger)
 
     callbacks = {
         "batch_start": [],
-        # "batch_end": [neptune_logger],
+        "batch_end": [mlflow_logger],
         "epoch_end": [
             save_weights_callback,
             plot_callback,
             early_terminate_callback,
-            # neptune_logger,
+            mlflow_logger,
+            weight_norm_callback,
         ],
     }
 

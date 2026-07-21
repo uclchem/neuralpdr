@@ -1,5 +1,5 @@
 save_file_path = "results_v3_bn_32/resume_30"
-neptune_project = "AutoChemulator/3dpdr-v3"
+mlflow_experiment_name = "AutoChemulator/3dpdr-v3"
 dataset_path = "/projects/1/prjs1344/v3/step_split_1_smooth.h5"
 input_features_file = "configs/v3/features/input_features.toml"
 normalisations_file = "configs/v3/features/normalisations/default.toml"

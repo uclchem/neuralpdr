@@ -31,7 +31,7 @@ dependencies = [
     "jaxtyping==0.2.38",
     "joblib",
     "matplotlib",
-    # "neptune",
+    "mlflow",
     "numpy>=2.0",
     "opt-einsum",
     "optax==0.2.8",

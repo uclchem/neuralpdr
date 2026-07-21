@@ -130,6 +130,10 @@ class _Base:
     input_features_file: Path
     depth: int
     width: int
+    mlflow_tracking_uri: str | None = None
+    mlflow_experiment_name: str | None = None
+    mlflow_run_name: str | None = None
+    mlflow_tags: dict[str, str] | None = None
 
     @field_validator("end_index", mode="before")
     @classmethod

@@ -1,7 +1,7 @@
 start_index = 0
 end_index = -1
 save_file_path = "results/v2_baseline"
-neptune_project = "AutoChemulator/3dpdr-v2"
+mlflow_experiment_name = "AutoChemulator/3dpdr-v2"
 batch_size = 32
 enc_dec_depth = 3
 enc_dec_width = 128

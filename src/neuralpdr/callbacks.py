@@ -1,21 +1,37 @@
 import json
 import logging
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-
-# import neptune
+import mlflow
 import orbax.checkpoint as ocp
 
 from .config import to_json
 from .plot import plot_batch
 
-# try:
-#     from secret_api_key import NEPTUNE_API_TOKEN
-# except ImportError:
-#     NEPTUNE_API_TOKEN = None
+
+def _flatten(value, prefix=""):
+    """Flatten a (possibly nested) dataclass/dict/list into flat str-valued params.
+
+    mlflow.log_params only accepts flat scalar values, unlike Neptune's
+    namespace-based nesting, so dicts/dataclasses/lists are recursively
+    expanded into dotted/indexed keys.
+    """
+    if is_dataclass(value) and not isinstance(value, type):
+        value = asdict(value)
+    flat = {}
+    if isinstance(value, dict):
+        for k, v in value.items():
+            flat.update(_flatten(v, f"{prefix}.{k}" if prefix else str(k)))
+    elif isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            flat.update(_flatten(v, f"{prefix}.{i}" if prefix else str(i)))
+    else:
+        flat[prefix] = value
+    return flat
 
 
 class SaveWeightCallback:
@@ -35,41 +51,38 @@ class SaveWeightCallback:
         self.frequency += 1
 
 
-# class NeptuneLogger:
-#     def __init__(self, neptune_project_name, hyperparameters, name=None, tags=None):
-#         self.neptune_project_name = neptune_project_name
-#         if NEPTUNE_API_TOKEN:
-#             self.neptune_client = neptune.init_run(
-#                 project=self.neptune_project_name,
-#                 api_token=NEPTUNE_API_TOKEN,
-#                 source_files="src/*.py",
-#                 name=name,
-#                 tags=tags,
-#                 monitoring_namespace="monitoring",  # This is the namespace for the monitoring metrics
-#             )
-#             self.log_metric("hyperparameters", hyperparameters)
-#         else:
-#             self.neptune_client = None
+class MlflowLogger:
+    def __init__(
+        self, experiment_name, hyperparameters, tracking_uri=None, name=None, tags=None
+    ):
+        self.active = experiment_name is not None
+        if self.active:
+            if tracking_uri:
+                mlflow.set_tracking_uri(tracking_uri)
+            mlflow.set_experiment(experiment_name)
+            self.run = mlflow.start_run(run_name=name, tags=tags)
+            mlflow.log_params(_flatten(hyperparameters))
+        else:
+            self.run = None
 
-#     def __call__(self, **kwargs):
-#         self.log_metrics(kwargs["neptune_metrics"])
+    def __call__(self, **kwargs):
+        step = kwargs.get("step", kwargs.get("epoch"))
+        self.log_metrics(kwargs["mlflow_metrics"], step=step)
 
-#     def log_metric(self, key, value):
-#         if NEPTUNE_API_TOKEN:
-#             self.neptune_client[key].append(value)
+    def log_metric(self, key, value, step=None):
+        if self.active:
+            mlflow.log_metric(key, value, step=step)
 
-#     def log_metrics(self, metrics):
-#         for k, v in metrics.items():
-#             self.log_metric(k, v)
+    def log_metrics(self, metrics, step=None):
+        if self.active:
+            mlflow.log_metrics(metrics, step=step)
 
-#     def get_client(self):
-#         if NEPTUNE_API_TOKEN:
-#             return self.neptune_client
-#         else:
-#             return {}
+    def get_client(self):
+        return mlflow if self.active else {}
 
-#     def __close__(self):
-#         neptune.stop()
+    def __close__(self):
+        if self.active:
+            mlflow.end_run()
 
 
 class JaxProfiler:
@@ -119,28 +132,28 @@ class CudaartProfiler:
         self.libcudart.cudaProfilerStop()
 
 
-# class LogModelWeightNorms:
-#     def __init__(self, neptune_callback: NeptuneLogger):
-#         self.neptune_cb = neptune_callback
+class LogModelWeightNorms:
+    def __init__(self, mlflow_logger: MlflowLogger):
+        self.mlflow_logger = mlflow_logger
 
-#     @staticmethod
-#     def is_linear(self, x):
-#         return isinstance(x, eqx.nn.Linear)
+    @staticmethod
+    def is_linear(x):
+        return isinstance(x, eqx.nn.Linear)
 
-#     @staticmethod
-#     def get_weights(self, m):
-#         return [
-#             x.weight
-#             for x in jax.tree_util.tree_leaves(m, is_leaf=self.is_linear)
-#             if self.is_linear(x)
-#         ]
+    def get_weights(self, m):
+        return [
+            x.weight
+            for x in jax.tree_util.tree_leaves(m, is_leaf=self.is_linear)
+            if self.is_linear(x)
+        ]
 
-#     def __call__(self, **kwargs):
-#         model = kwargs["model"]
-#         for weights in self.get_weights(model):
-#             self.neptune_cb.log_metric(
-#                 f"weights_{weights.name}_l2", jnp.mean(weights.weight**2)
-#             )
+    def __call__(self, **kwargs):
+        model = kwargs["model"]
+        epoch = kwargs.get("epoch")
+        for i, weights in enumerate(self.get_weights(model)):
+            self.mlflow_logger.log_metric(
+                f"weights_layer{i}_l2", float(jnp.mean(weights**2)), step=epoch
+            )
 
 
 class OneBatchPlotter:
