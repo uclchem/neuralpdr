@@ -440,12 +440,15 @@ class PDRLoader:
         print("trying to set the next fraction index with frac", frac)
         if frac == 1.0 or frac is None:
             self.dynamic_end_index = None
-        elif isinstance(frac, float):
+        elif frac > 1.0:
+            # Values above 1.0 are an absolute series length cap, not a
+            # fraction of the timeseries length. Pydantic coerces TOML ints
+            # to float on LearningScheme.timeseries_fraction, so `frac` may
+            # arrive as e.g. 32.0 rather than 32 -- treat it the same way.
+            self.dynamic_end_index = int(frac)
+        elif isinstance(frac, (float, int)):
             # Set the end index to the fraction of the timeseries length
             self.dynamic_end_index = np.ceil(frac * self.timeseries_length).astype(int)
-        elif isinstance(frac, int):
-            # Set the end index to the fraction of the timeseries length
-            self.dynamic_end_index = frac
         else:
             raise ValueError("Fraction must be either a float or an integer")
         # Load the data again
