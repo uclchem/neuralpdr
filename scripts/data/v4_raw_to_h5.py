@@ -141,7 +141,9 @@ def load_ray_directions(data_path: Path):
     )
 
     axis_aligned_mask = np.isclose(theta, np.pi / 2, atol=1e-3)
-    assert axis_aligned_mask.sum() == 4, "expected exactly 4 axis-aligned ray directions"
+    assert axis_aligned_mask.sum() == 4, (
+        "expected exactly 4 axis-aligned ray directions"
+    )
     assert (~axis_aligned_mask).sum() == 8, "expected exactly 8 diagonal ray directions"
 
     axis_map = {}
@@ -155,7 +157,9 @@ def load_ray_directions(data_path: Path):
             axis_map["+y"] = i
         elif d[1] < -0.9:
             axis_map["-y"] = i
-    assert set(axis_map) == {"+x", "-x", "+y", "-y"}, f"could not identify axis rays: {axis_map}"
+    assert set(axis_map) == {"+x", "-x", "+y", "-y"}, (
+        f"could not identify axis rays: {axis_map}"
+    )
 
     diagonal_indices = np.where(~axis_aligned_mask)[0].tolist()
     return dirs, axis_map, diagonal_indices
@@ -233,7 +237,13 @@ def trilinear_interp(coords: np.ndarray, field_all: np.ndarray) -> np.ndarray:
     return c0 * (1 - fz) + c1 * fz
 
 
-def march_ray(p0: np.ndarray, m: np.ndarray, t_exit: float, field_all: np.ndarray, conv_const: float):
+def march_ray(
+    p0: np.ndarray,
+    m: np.ndarray,
+    t_exit: float,
+    field_all: np.ndarray,
+    conv_const: float,
+):
     """March a single ray from entry point p0 in direction m until t_exit.
 
     Returns a (n_points, 39) float32 array [visual_extinction, tgas, tdust, etype,
@@ -294,7 +304,9 @@ def compute_t_exit(p0: np.ndarray, m: np.ndarray) -> np.ndarray:
     return t_max
 
 
-def entry_points_for_face(face_axis: int, face_value: float, other_axes: list) -> np.ndarray:
+def entry_points_for_face(
+    face_axis: int, face_value: float, other_axes: list
+) -> np.ndarray:
     coords = (np.arange(N) + 0.5) * SPACING
     A, B = np.meshgrid(coords, coords, indexing="ij")
     p0 = np.empty((N * N, 3), dtype=np.float64)
@@ -393,10 +405,14 @@ def write_models(model_iter, store_path: Path, total: int | None = None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("data_path", type=str, help="Directory containing COL128.* raw files")
+    parser.add_argument(
+        "data_path", type=str, help="Directory containing COL128.* raw files"
+    )
     parser.add_argument("output_file", type=str, help="Path to output HDF5 file")
     parser.add_argument("--n-jobs", type=int, default=8)
-    parser.add_argument("--conversion-constant", type=float, default=DEFAULT_CONVERSION_CONSTANT)
+    parser.add_argument(
+        "--conversion-constant", type=float, default=DEFAULT_CONVERSION_CONSTANT
+    )
     parser.add_argument(
         "--limit-entries",
         type=int,
@@ -404,10 +420,14 @@ def main():
         help="Cap entry points per (direction,face) group - for quick testing only",
     )
     parser.add_argument(
-        "--skip-axis", action="store_true", help="Skip axis-aligned models (testing only)"
+        "--skip-axis",
+        action="store_true",
+        help="Skip axis-aligned models (testing only)",
     )
     parser.add_argument(
-        "--skip-diagonal", action="store_true", help="Skip diagonal models (testing only)"
+        "--skip-diagonal",
+        action="store_true",
+        help="Skip diagonal models (testing only)",
     )
     args = parser.parse_args()
 

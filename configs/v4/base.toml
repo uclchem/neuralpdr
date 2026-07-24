@@ -1,6 +1,7 @@
 save_file_path = "data/results/v4"
 dataset_path = "data/processed/3dpdr_dataset_v4.h5"
 input_features_file = "configs/v4/features/input_features.toml"
+normalisations_file = "configs/v4/features/normalisations/computed.toml"
 start_index = 0
 end_index = -1
 minimal_timeseries_length = 48

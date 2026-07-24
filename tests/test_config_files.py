@@ -7,7 +7,12 @@ from neuralpdr.config import read_conf
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS_DIR = PROJECT_ROOT / "configs"
 
-PATH_FIELDS = ["dataset_path", "input_features_file", "save_file_path", "normalisations_file"]
+PATH_FIELDS = [
+    "dataset_path",
+    "input_features_file",
+    "save_file_path",
+    "normalisations_file",
+]
 
 
 def _discover_configs() -> list[Path]:

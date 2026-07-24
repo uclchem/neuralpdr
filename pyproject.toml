@@ -45,6 +45,16 @@ dependencies = [
     "tqdm",
 ]
 
+[project.optional-dependencies]
+tune = [
+    "raytune-smac @ git+https://github.com/GijsVermarien/raytune-smac.git",
+    "smac>=2.0",
+    "ConfigSpace>=1.0",
+    # smac's RandomForest surrogate model reaches into sklearn.tree._tree
+    # private API, which changed in sklearn>=1.8 and breaks the import.
+    "scikit-learn<1.8",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
