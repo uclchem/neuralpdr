@@ -7,12 +7,12 @@ from dataclasses import asdict
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, TypeAlias
+from typing import Callable, TypeAlias
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Float, Integer, Scalar
+from jaxtyping import Integer, Scalar
 import numpy as np
 import optax
 from jax.experimental import mesh_utils
