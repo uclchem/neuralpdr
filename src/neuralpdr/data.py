@@ -3,13 +3,12 @@ import json
 import logging
 import pickle
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Protocol, TypeAlias
 
 import h5py
-from jaxtyping import Array
+from jaxtyping import Array, Float
 import jax.numpy as jnp
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 from tqdm import tqdm
 
@@ -22,6 +21,17 @@ def text_from_h5(dataset_path: str | Path, key: str) -> list[str]:
 def df_from_h5(dataset_path: str | Path, key: str, columns=None) -> pd.DataFrame:
     with h5py.File(str(dataset_path), "r") as h5f:
         return pd.DataFrame(h5f[key][:], columns=columns)
+
+
+ArrayList: TypeAlias = list[np.ndarray] | list[Float[Array, "..."]]
+
+
+class CollateFunction(Protocol):
+    def __call__(
+        self,
+        *batches: list[np.ndarray],
+        random_sample_number: int | None = None,
+    ) -> list[Array]: ...
 
 
 class PDRLoader:
@@ -40,9 +50,9 @@ class PDRLoader:
         features_normalization_kwargs: dict = {},
         auxiliary_features_normalization_kwargs: dict = {},
         batch_permutation_function: Callable | None = None,
-        collate_fn: Callable[
-            [Sequence[npt.ArrayLike]], np.ndarray
-        ] = lambda x: np.stack(x, axis=0),
+        collate_fn: CollateFunction = lambda *x, random_sample_number=None: np.stack(
+            x, axis=0
+        ),
         load_first_n_keys: int | None = None,
         drop_last: bool = True,
         use_cache: bool = False,
@@ -114,9 +124,9 @@ class PDRLoader:
         self.auxiliary_data_by_model: dict[str, np.ndarray] = {}
 
         # Create lists to store the batched data, or an array of jax data with shape (n_batches, batch_size, av_points, n_features)
-        self.batched_feature_data: list[np.ndarray] | Array = []
-        self.batched_independent_data: list[np.ndarray] | Array = []
-        self.batched_auxiliary_data: list[np.ndarray] | Array = []
+        self.batched_feature_data: ArrayList | Array = []
+        self.batched_independent_data: ArrayList | Array = []
+        self.batched_auxiliary_data: ArrayList | Array = []
         # Store all the names of each of the samples in a list
         self.batched_indices: list[list] = []
 
@@ -409,17 +419,11 @@ class PDRLoader:
                 ]
             )
 
-    def get_all_batches(
-        self,
-    ) -> tuple[
-        list[np.ndarray] | Array | npt.ArrayLike,
-        list[np.ndarray] | Array | npt.ArrayLike,
-        list[np.ndarray] | Array | npt.ArrayLike,
-    ]:
+    def get_all_batches(self):
         """Get all the batches of data and av
 
         Returns:
-            tuple[list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array]: Tuple with the batched av and data
+            tuple[list[FloatArrayLike] | Array, ...]: Tuple with the batched av and data
         """
         return (
             self.batched_independent_data,
@@ -576,14 +580,16 @@ class PadAndStack:
         return pad_and_stack(batch, random_sample_number=self.random_sample_number)
 
 
-def pad_and_stack(*batches: list[np.ndarray], random_sample_number: int | None = None):
+def pad_and_stack(
+    *batches: list[np.ndarray], random_sample_number: int | None = None
+) -> list[Array]:
     """Pad and stack the batch of data
 
     Args:
-        batch (list[np.ndarray]): List of numpy arrays to stack
+        *batches (list[np.ndarray]): List of numpy arrays to stack
 
     Returns:
-        np.ndarray: Stacked numpy array
+        list[Array]: Stacked numpy array
     """
     if not reduce(lambda i, j: j if i == j else False, map(len, batches)):
         msg = "All arrays in the batch must have the same length"
