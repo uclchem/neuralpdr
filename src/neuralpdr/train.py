@@ -7,11 +7,12 @@ from dataclasses import asdict
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypeAlias
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from jaxtyping import Integer, Scalar
 import numpy as np
 import optax
 from jax.experimental import mesh_utils
@@ -86,7 +87,7 @@ def grad_loss(
     batch_data: jax.Array,
     batch_aux: jax.Array,
     weight_per_loss: jax.Array = jnp.array([1.0, 1.0, 1.0]),
-) -> jax.Array:
+) -> tuple[jax.Array, jax.Array]:
     """Compute the loss function for the NeuralODE.
 
     Args:
@@ -104,7 +105,7 @@ def grad_loss(
         batch_iv: jax.Array,
         batch_data: jax.Array,
         batch_aux: jax.Array,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    ) -> jax.Array:
         pred_y, evolved_z, auto_y, direct_z, steps = eqx.filter_vmap(
             model, in_axes=(0, 0, 0), out_axes=0
         )(batch_iv[:, :, 0], batch_data, batch_aux)
@@ -144,7 +145,7 @@ def grad_loss(
 @eqx.filter_jit
 def grad_loss_only(
     model: eqx.Module, batch_iv: jax.Array, batch_data: jax.Array, batch_aux: jax.Array
-) -> jax.Array:
+) -> Scalar:
     """Compute the loss function for the NeuralODE.
 
     Args:
@@ -167,6 +168,9 @@ def grad_loss_only(
     return jnp.mean(valid_mask * (pred_batch_data - batch_data[:, :, :]) ** 2)
 
 
+ScalarInt: TypeAlias = Integer[jax.Array, ""]
+
+
 @eqx.filter_jit(donate="all")
 def make_step(
     model: eqx.Module,
@@ -176,7 +180,18 @@ def make_step(
     batch_data: jax.Array,
     batch_aux: jax.Array,
     loss_weights: jax.Array = jnp.array([1.0, 1.0, 1.0]),
-) -> tuple[jax.Array, eqx.Module, optax.OptState]:
+) -> tuple[
+    Scalar,
+    eqx.Module,
+    optax.OptState,
+    ScalarInt,
+    ScalarInt,
+    ScalarInt,
+    ScalarInt,
+    Scalar,
+    Scalar,
+    Scalar,
+]:
     """Make a step in the optimization process.
 
     Args:
@@ -228,10 +243,10 @@ def do_epoch(
     opt_state: optax.OptState,
     train_loader,
     val_loader,
-    callbacks: dict[str, list[Callable]] = None,
-    multi_objective_scheduler: Callable = None,
-    sharding: jax.sharding.Sharding = None,
-) -> tuple[float, float, eqx.Module, optax.OptState]:
+    callbacks: dict[str, list[Callable]],
+    multi_objective_scheduler: Callable | None = None,
+    sharding: jax.sharding.Sharding | None = None,
+) -> tuple[Scalar, Scalar, eqx.Module, optax.OptState]:
     """Perform an epoch of training on the NeuralODE.
 
     Args:
@@ -320,13 +335,12 @@ def do_epoch(
                     },
                 )
 
-    train_loss = jnp.mean(train_losses)
     val_losses = jnp.zeros((len(val_loader),))
     for idx, (iv, data, aux) in enumerate(val_loader):
         if sharding:
             iv, data, aux = jax.device_put((iv, data, aux), sharding)
         val_losses = val_losses.at[idx].set(grad_loss_only(mlp, iv, data, aux))
-    return train_loss, jnp.mean(val_losses), mlp, opt_state
+    return jnp.mean(train_losses), jnp.mean(val_losses), mlp, opt_state
 
 
 # Function to train the NeuralODE
@@ -337,12 +351,10 @@ def train(
     fracs: list[float],
     train_loader: PDRLoader,
     val_loader: PDRLoader,
-    shuffle_every_n_epochs: int | None = None,
-    save_file_path: Path | None = None,
-    optim: optax.GradientTransformation = None,
-    multi_objective_loss_scheduler: Callable = None,
-    callbacks={},
-    sharding: jax.sharding.Sharding = None,
+    optim: optax.GradientTransformation,
+    multi_objective_loss_scheduler: Callable | None = None,
+    callbacks: dict[str, list[Callable]] = {},
+    sharding: jax.sharding.Sharding | None = None,
 ):
     """Train the NeuralODE
 
@@ -353,18 +365,15 @@ def train(
         fracs (list[float]): List of fractions for visual extinctions.
         train_loader (PDRLoader): The data loader for training data.
         val_loader (PDRLoader): The data loader for validation data.
-        shuffle_every_n_epochs (int, optional): Number of epochs after which to shuffle the training data. Defaults to None.
-        loss_type (str, optional): Type of loss function to use. Defaults to None.
-        visualize (bool, optional): Whether to visualize the training progress. Defaults to True.
-        save_file_path (Path, optional): Path to save the training progress. Defaults to None.
         optim (optax.GradientTransformation, optional): The optimizer to use. Defaults to None.
-        end_of_epoch_callback (Callable, optional): Callback function to execute at the end of each epoch. Defaults to None.
+        callbacks (dict[str, list[Callable]], optional): Callback functions to execute at different parts of each epoch. Defaults to empty.
     """
     # For training on specific chunks of the dataset to avoid getting caught in local minima
     epoch_checkpoints_a = [1] + list(np.cumsum(epochs, dtype=int)[:-1] + 1)
     epoch_checkpoints_b = list(np.cumsum(epochs, dtype=int))
 
-    train_loss, val_loss = 0.0, 0.0
+    train_loss: Scalar = jnp.array(0.0)
+    val_loss: Scalar = jnp.array(0.0)
     for frac, epoch_a, epoch_b in zip(fracs, epoch_checkpoints_a, epoch_checkpoints_b):
         train_loader.set_timeseries_fraction(frac)
         val_loader.set_timeseries_fraction(frac)
@@ -522,7 +531,7 @@ def main(conf: Latent | FNO):
     #     conf["neptune_project"], conf, tags=conf.get("neptune_tags")
     # )
 
-    callbacks = {
+    callbacks: dict[str, list[Callable]] = {
         "batch_start": [],
         # "batch_end": [neptune_logger],
         "epoch_end": [
@@ -621,9 +630,8 @@ def main(conf: Latent | FNO):
             epochs,
             timeseries_fractions,
         )
-    boundaries = np.cumsum(boundaries)
     learning_rate_scheduler = join_schedules(
-        learning_rate_scheduler, boundaries.tolist()
+        learning_rate_scheduler, np.cumsum(boundaries).tolist()
     )
     # optim = optax.adamw(
     #     learning_rate=learning_rate_scheduler, weight_decay=conf.weight_decay
@@ -641,10 +649,8 @@ def main(conf: Latent | FNO):
         timeseries_fractions,
         train_dataloader,
         val_dataloader,
-        save_file_path=save_file_path,
         optim=optim,
         multi_objective_loss_scheduler=multi_objective_loss_scheduler,
-        shuffle_every_n_epochs=conf.shuffle_every_n_epochs,
         callbacks=callbacks,
         sharding=sharding,
     )
