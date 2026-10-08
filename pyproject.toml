@@ -56,14 +56,6 @@ filterwarnings = [
     "ignore:jsonschema.RefResolver is deprecated:DeprecationWarning",
 ]
 
-[tool.black]
-include = '\.pyi?$'
-extend-exclude ='''
-(
-  ^data
-)
-'''
-
 [tool.mypy]
 python_version = "3.13"
 ignore_missing_imports = true

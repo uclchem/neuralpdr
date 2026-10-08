@@ -168,7 +168,7 @@ def grad_loss_only(
     return jnp.mean(valid_mask * (pred_batch_data - batch_data[:, :, :]) ** 2)
 
 
-ScalarInt: TypeAlias = Integer[jax.Array, ""]
+ScalarInt: TypeAlias = Integer[jax.Array, ""]  # noqa: F722
 
 
 @eqx.filter_jit(donate="all")

@@ -23,7 +23,7 @@ def df_from_h5(dataset_path: str | Path, key: str, columns=None) -> pd.DataFrame
         return pd.DataFrame(h5f[key][:], columns=columns)
 
 
-ArrayList: TypeAlias = list[np.ndarray] | list[Float[Array, "..."]]
+ArrayList: TypeAlias = list[Float[Array, "..."]]
 
 
 class CollateFunction(Protocol):
@@ -50,9 +50,7 @@ class PDRLoader:
         features_normalization_kwargs: dict = {},
         auxiliary_features_normalization_kwargs: dict = {},
         batch_permutation_function: Callable | None = None,
-        collate_fn: CollateFunction = lambda *x, random_sample_number=None: np.stack(
-            x, axis=0
-        ),
+        collate_fn: CollateFunction | None = None,
         load_first_n_keys: int | None = None,
         drop_last: bool = True,
         use_cache: bool = False,
@@ -72,7 +70,7 @@ class PDRLoader:
             features_normalization_kwargs (dict, optional): kwargs for normalizing the features. Defaults to {}.
             auxiliary_features_normalization_kwargs (dict, optional): kwargs for normalizing the auxiliary features. Defaults to {}.
             batch_permutation_function (callable, optional): Function to permute the samples into batches. Defaults to None.
-            collate_fn (callable, optional): Function to collate data into batches. Defaults to lambda x: np.stack(x, axis=0).
+            collate_fn (callable, optional): Function to collate data into batches. Defaults to pad_and_stack.
             load_first_n_keys (int, optional): Number of keys to load. Defaults to None.
             drop_last (bool, optional): Drop the last batch if it is smaller than the batch size. Defaults to True.
             use_cache (bool, optional): Use a cache to store the loaded data. Defaults to False.
@@ -89,7 +87,7 @@ class PDRLoader:
         self.stage = stage
         self.key_template = "{model}/pdr"
         self.batch_permutation_function = batch_permutation_function
-        self.collate_fn = collate_fn
+        self.collate_fn = collate_fn if collate_fn is not None else pad_and_stack
         self.load_first_n_keys = load_first_n_keys
         self.drop_last = drop_last
         self.use_cache = use_cache
@@ -570,14 +568,6 @@ def load_split(savepath: Path) -> list[str]:
     with open(savepath, "r") as f:
         split = json.load(f)
     return split
-
-
-class PadAndStack:
-    def __init__(self, random_sample_number: int | None = None):
-        self.random_sample_number = random_sample_number
-
-    def __call__(self, batch):
-        return pad_and_stack(batch, random_sample_number=self.random_sample_number)
 
 
 def pad_and_stack(
