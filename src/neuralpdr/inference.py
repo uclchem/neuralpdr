@@ -2,29 +2,29 @@
 import argparse
 import json
 import os
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable
 
 import equinox as eqx
 import h5py
 import jax
-from jaxtyping import Array, ArrayLike
 import numpy as np
+from jaxtyping import Array, ArrayLike
 from tqdm import tqdm
 
 from neuralpdr.config import (
-    AUXNorm,
     Activation,
+    AUXNorm,
     DataMetadata,
     DataNorm,
     Features,
     IVNorm,
     Latent,
     Norms,
-    read_conf,
     read_as,
+    read_conf,
     to_json,
 )
 from neuralpdr.data import (

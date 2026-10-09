@@ -1,10 +1,11 @@
-from dataclasses import replace
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
 from neuralpdr.config import LearningScheme, read_conf, write_conf
 
 pytestmark = pytest.mark.integration
@@ -93,7 +94,7 @@ def test_training_pipeline_integration(version, tmp_path: Path):
     # Run the training script via subprocess to mimic user CLI
     cmd = [
         sys.executable,
-        str((PROJECT_ROOT / "src" / "neuralpdr" / "train.py")),
+        str(PROJECT_ROOT / "src" / "neuralpdr" / "train.py"),
         str(cfg_path),
     ]
     env = dict(**os.environ)

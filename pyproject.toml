@@ -56,6 +56,10 @@ filterwarnings = [
     "ignore:jsonschema.RefResolver is deprecated:DeprecationWarning",
 ]
 
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+ignore = ["F722"]  # jaxtyping shape strings, e.g. Float[Array, "T F"]
+
 [tool.mypy]
 python_version = "3.13"
 ignore_missing_imports = true

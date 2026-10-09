@@ -1,15 +1,16 @@
-from functools import reduce
 import json
 import logging
 import pickle
+from collections.abc import Callable
+from functools import reduce
 from pathlib import Path
-from typing import Callable, Protocol, TypeAlias
+from typing import Protocol, TypeAlias
 
 import h5py
-from jaxtyping import Array, Float
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
+from jaxtyping import Array, Float
 from tqdm import tqdm
 
 
@@ -195,7 +196,7 @@ class PDRLoader:
         )
         if self.use_cache:
             if cache_path.exists():
-                for _ in tqdm((range(1))):
+                for _ in tqdm(range(1)):
                     print("Trying to use cache files")
                     # TODO: add try-except block here.
                     with open(cache_path, "rb") as fh:
@@ -393,12 +394,10 @@ class PDRLoader:
 
         # If all batches have the same shape, cast them into one big array:
         if all(
-            (
-                [
-                    batch_iv.shape == self.batched_independent_data[0].shape
-                    for batch_iv in self.batched_independent_data
-                ]
-            )
+            [
+                batch_iv.shape == self.batched_independent_data[0].shape
+                for batch_iv in self.batched_independent_data
+            ]
         ):
             last_batch_length = len(self.batched_feature_data[-1])
             self.batched_feature_data = jnp.array(
@@ -565,7 +564,7 @@ def save_split(savepath: Path, split: list[str]) -> None:
 
 
 def load_split(savepath: Path) -> list[str]:
-    with open(savepath, "r") as f:
+    with open(savepath) as f:
         split = json.load(f)
     return split
 

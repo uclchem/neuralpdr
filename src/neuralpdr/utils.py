@@ -1,8 +1,9 @@
+import subprocess
+from collections.abc import Sequence
+
 import chex
 import jax.numpy as jnp
 import optax
-from typing import Sequence
-import subprocess
 
 
 def get_git_info() -> dict[str, str]:

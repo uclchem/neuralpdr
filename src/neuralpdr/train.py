@@ -3,21 +3,22 @@ import argparse
 import json
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Callable, TypeAlias
+from typing import TypeAlias
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Integer, Scalar
 import numpy as np
 import optax
 from jax.experimental import mesh_utils
 from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
+from jaxtyping import Integer, Scalar
 
 from neuralpdr.callbacks import (
     EarlyTerminate,
@@ -26,10 +27,10 @@ from neuralpdr.callbacks import (
     SaveWeightCallback,
 )
 from neuralpdr.config import (
+    FNO,
     AUXNorm,
     DataNorm,
     Features,
-    FNO,
     IVNorm,
     Latent,
     Norms,
@@ -39,10 +40,10 @@ from neuralpdr.config import (
 from neuralpdr.data import (
     PDRLoader,
     filter_models_by_series_length,
-    text_from_h5,
     log_semi_sorter,
     pad_and_stack,
     shuffle_and_split,
+    text_from_h5,
 )
 from neuralpdr.inference import checkpoint_deserializer
 from neuralpdr.model import EncoderEvolveDecoder
@@ -168,7 +169,7 @@ def grad_loss_only(
     return jnp.mean(valid_mask * (pred_batch_data - batch_data[:, :, :]) ** 2)
 
 
-ScalarInt: TypeAlias = Integer[jax.Array, ""]  # noqa: F722
+ScalarInt: TypeAlias = Integer[jax.Array, ""]
 
 
 @eqx.filter_jit(donate="all")
