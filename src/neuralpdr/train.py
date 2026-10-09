@@ -87,7 +87,7 @@ def grad_loss(
     batch_iv: jax.Array,
     batch_data: jax.Array,
     batch_aux: jax.Array,
-    weight_per_loss: jax.Array = jnp.array([1.0, 1.0, 1.0]),
+    weight_per_loss: jax.Array,
 ) -> tuple[jax.Array, jax.Array]:
     """Compute the loss function for the NeuralODE.
 
@@ -180,7 +180,7 @@ def make_step(
     batch_iv: jax.Array,
     batch_data: jax.Array,
     batch_aux: jax.Array,
-    loss_weights: jax.Array = jnp.array([1.0, 1.0, 1.0]),
+    loss_weights: jax.Array,
 ) -> tuple[
     Scalar,
     eqx.Module,
@@ -277,34 +277,23 @@ def do_epoch(
         # Initialize the sharding if needed:
         if sharding:
             iv, data, aux = jax.device_put((iv, data, aux), sharding)
-        if multi_objective_scheduler is None:
-            (
-                train_value,
-                mlp,
-                opt_state,
-                nan_count,
-                solver_steps_min,
-                solver_steps_med,
-                solver_steps_max,
-                rollout_loss,
-                latent_loss,
-                auto_loss,
-            ) = make_step(mlp, optim, opt_state, iv, data, aux)
-        else:
-            (
-                train_value,
-                mlp,
-                opt_state,
-                nan_count,
-                solver_steps_min,
-                solver_steps_med,
-                solver_steps_max,
-                rollout_loss,
-                latent_loss,
-                auto_loss,
-            ) = make_step(
-                mlp, optim, opt_state, iv, data, aux, multi_objective_scheduler(epoch)
-            )
+        loss_weights = (
+            jnp.ones(3)
+            if multi_objective_scheduler is None
+            else jnp.asarray(multi_objective_scheduler(epoch))
+        )
+        (
+            train_value,
+            mlp,
+            opt_state,
+            nan_count,
+            solver_steps_min,
+            solver_steps_med,
+            solver_steps_max,
+            rollout_loss,
+            latent_loss,
+            auto_loss,
+        ) = make_step(mlp, optim, opt_state, iv, data, aux, loss_weights)
         # Save the loss for this batch
         if not jnp.isnan(train_value):
             train_losses = train_losses.at[step].set(train_value)
@@ -354,7 +343,7 @@ def train(
     val_loader: PDRLoader,
     optim: optax.GradientTransformation,
     multi_objective_loss_scheduler: Callable | None = None,
-    callbacks: dict[str, list[Callable]] = {},
+    callbacks: dict[str, list[Callable]] | None = None,
     sharding: jax.sharding.Sharding | None = None,
 ):
     """Train the NeuralODE
@@ -369,13 +358,15 @@ def train(
         optim (optax.GradientTransformation, optional): The optimizer to use. Defaults to None.
         callbacks (dict[str, list[Callable]], optional): Callback functions to execute at different parts of each epoch. Defaults to empty.
     """
+    if callbacks is None:
+        callbacks = {}
     # For training on specific chunks of the dataset to avoid getting caught in local minima
     epoch_checkpoints_a = [1] + list(np.cumsum(epochs, dtype=int)[:-1] + 1)
     epoch_checkpoints_b = list(np.cumsum(epochs, dtype=int))
 
     train_loss: Scalar = jnp.array(0.0)
     val_loss: Scalar = jnp.array(0.0)
-    for frac, epoch_a, epoch_b in zip(fracs, epoch_checkpoints_a, epoch_checkpoints_b):
+    for frac, epoch_a, epoch_b in zip(fracs, epoch_checkpoints_a, epoch_checkpoints_b, strict=True):
         train_loader.set_timeseries_fraction(frac)
         val_loader.set_timeseries_fraction(frac)
         for epoch in range(epoch_a, epoch_b + 1):

@@ -40,6 +40,7 @@ dependencies = [
     "pydantic",
     "pytest",
     "ray",
+    "ruff>=0.16.10",
     "tomlkit",
     "tqdm",
 ]

@@ -46,7 +46,7 @@ def join_schedules(
 
     def schedule(step: chex.Numeric) -> chex.Numeric:
         output = schedules[0](step)
-        for boundary, schedule in zip(boundaries, schedules[1:]):
+        for boundary, schedule in zip(boundaries, schedules[1:], strict=True):
             output = jnp.where(step < boundary, output, schedule(step - boundary))
         return output
 

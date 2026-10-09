@@ -47,9 +47,9 @@ class PDRLoader:
         model_df: pd.DataFrame | None = None,
         batch_size: int = 16,
         stage: str = "",
-        independent_variable_normalization_kwargs: dict = {},
-        features_normalization_kwargs: dict = {},
-        auxiliary_features_normalization_kwargs: dict = {},
+        independent_variable_normalization_kwargs: dict = None,
+        features_normalization_kwargs: dict = None,
+        auxiliary_features_normalization_kwargs: dict = None,
         batch_permutation_function: Callable | None = None,
         collate_fn: CollateFunction | None = None,
         load_first_n_keys: int | None = None,
@@ -86,6 +86,12 @@ class PDRLoader:
         self.model_indices = model_indices
         self.normalization_parameters: dict[str, dict[str, float | np.ndarray]] = {}
         self.stage = stage
+        if independent_variable_normalization_kwargs is None:
+            independent_variable_normalization_kwargs = {}
+        if features_normalization_kwargs is None:
+            features_normalization_kwargs = {}
+        if auxiliary_features_normalization_kwargs is None:
+            auxiliary_features_normalization_kwargs = {}
         self.key_template = "{model}/pdr"
         self.batch_permutation_function = batch_permutation_function
         self.collate_fn = collate_fn if collate_fn is not None else pad_and_stack
@@ -368,7 +374,7 @@ class PDRLoader:
         # Create the list of grouped model indices for the batches
         batch_indices_lil = [
             self.model_indices[start:stop]
-            for start, stop in zip(fenceposts[:-1], fenceposts[1:])
+            for start, stop in zip(fenceposts[:-1], fenceposts[1:], strict=True)
         ]
         # Ensure we shuffle the batches before load the data to ensure
         # the batches are not loaded in increasing series length.
@@ -514,6 +520,7 @@ class PDRLoader:
                 self.batched_independent_data,
                 self.batched_feature_data,
                 self.batched_auxiliary_data,
+                strict=True
             )
         )
 
@@ -595,7 +602,7 @@ def pad_and_stack(
             int
         )
         batches = tuple(
-            [series[a:b] for series, a, b in zip(batch, random_starts, random_ends)]
+            [series[a:b] for series, a, b in zip(batch, random_starts, random_ends, strict=True)]
             for batch in batches
         )
         max_length = max([len(data) for data in batches[0]])
@@ -627,7 +634,7 @@ def log_semi_sorter(
         -log_noise_parameter, log_noise_parameter, lengths.shape
     )
     sorted_indices_dict: dict[str, float] = dict(
-        zip(model_indices, semi_random_sort_key)
+        zip(model_indices, semi_random_sort_key, strict=True)
     )
     sorted_indices = sorted(sorted_indices_dict, key=sorted_indices_dict.__getitem__)
     sorted_indices = list(sorted_indices)

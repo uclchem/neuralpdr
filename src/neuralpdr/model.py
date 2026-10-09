@@ -69,7 +69,7 @@ def get_flexible_block(
         eqx.nn.Linear(input_size, layers[0], key=layer_keys[0]),
         eqx.nn.Lambda(activation),
     ]
-    for idx, (s1, s2) in enumerate(zip(layers[:-1], layers[1:])):
+    for idx, (s1, s2) in enumerate(zip(layers[:-1], layers[1:], strict=True)):
         jax_layers.append(
             eqx.nn.Linear(s1, s2, key=layer_keys[idx + 2])
         )  # start after two first keys
@@ -336,7 +336,7 @@ def init_linear_weight(
     weights = get_weights(model)
     new_weights = [
         init_fn(weight, subkey)
-        for weight, subkey in zip(weights, jax.random.split(key, len(weights)))
+        for weight, subkey in zip(weights, jax.random.split(key, len(weights)), strict=True)
     ]
     new_model = eqx.tree_at(get_weights, model, new_weights)
     return new_model

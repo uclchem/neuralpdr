@@ -64,7 +64,7 @@ def resolve_path(path_str, config_file_path, path_type="config"):
             raise ValueError(
                 f"Environment variable {e} not found in path: {path_str}\n"
                 f"Please set the environment variable or use an absolute path."
-            )
+            ) from e
 
     # Convert to Path object
     path = Path(path_str).expanduser()
@@ -103,7 +103,7 @@ def validate_path(path, path_name, require_exists=False):
         if require_exists:
             raise FileNotFoundError(message)
         else:
-            warnings.warn(message, UserWarning)
+            warnings.warn(message, UserWarning, stacklevel=2)
 
 
 def resolve_config_paths(config, config_file_path):
