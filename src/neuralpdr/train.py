@@ -366,7 +366,9 @@ def train(
 
     train_loss: Scalar = jnp.array(0.0)
     val_loss: Scalar = jnp.array(0.0)
-    for frac, epoch_a, epoch_b in zip(fracs, epoch_checkpoints_a, epoch_checkpoints_b, strict=True):
+    for frac, epoch_a, epoch_b in zip(
+        fracs, epoch_checkpoints_a, epoch_checkpoints_b, strict=True
+    ):
         train_loader.set_timeseries_fraction(frac)
         val_loader.set_timeseries_fraction(frac)
         for epoch in range(epoch_a, epoch_b + 1):

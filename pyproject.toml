@@ -37,6 +37,7 @@ dependencies = [
     "optax==0.2.8",
     "orbax",
     "pandas",
+    "pre-commit>=4.6.2",
     "pydantic",
     "pytest",
     "ray",

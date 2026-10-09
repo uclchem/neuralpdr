@@ -336,7 +336,9 @@ def init_linear_weight(
     weights = get_weights(model)
     new_weights = [
         init_fn(weight, subkey)
-        for weight, subkey in zip(weights, jax.random.split(key, len(weights)), strict=True)
+        for weight, subkey in zip(
+            weights, jax.random.split(key, len(weights)), strict=True
+        )
     ]
     new_model = eqx.tree_at(get_weights, model, new_weights)
     return new_model

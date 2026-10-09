@@ -520,7 +520,7 @@ class PDRLoader:
                 self.batched_independent_data,
                 self.batched_feature_data,
                 self.batched_auxiliary_data,
-                strict=True
+                strict=True,
             )
         )
 
@@ -602,7 +602,10 @@ def pad_and_stack(
             int
         )
         batches = tuple(
-            [series[a:b] for series, a, b in zip(batch, random_starts, random_ends, strict=True)]
+            [
+                series[a:b]
+                for series, a, b in zip(batch, random_starts, random_ends, strict=True)
+            ]
             for batch in batches
         )
         max_length = max([len(data) for data in batches[0]])

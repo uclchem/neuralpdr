@@ -22,7 +22,7 @@ Example:
 
     # Specific metallicity with metallicity column
     python models_to_h5_v2.py data/zenodo/v2/extracted data/processed/3dpdr_dataset_v2_raw.h5 --metallicity Z0p5 --include-metallicity
-    
+
     # All metallicities in one file
     python models_to_h5_v2.py data/zenodo/v2/extracted data/processed/3dpdr_dataset_v2_raw.h5 --all-metallicities
 """
@@ -159,7 +159,9 @@ def process_all_metallicities(
 
         # Store metadata
         fh.create_dataset("model_df", data=np.array(all_params), dtype="float32")
-        fh.create_dataset("model_ids", data=all_model_ids, dtype="S20")  # Longer for suffix
+        fh.create_dataset(
+            "model_ids", data=all_model_ids, dtype="S20"
+        )  # Longer for suffix
         fh.create_dataset("species", data=SPECIES, dtype="S10")
 
         # Store metallicity info
