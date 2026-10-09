@@ -19,7 +19,6 @@ Run tests:
     pytest tests/test_pdrloader.py -v
 """
 
-import sys
 from pathlib import Path
 
 import h5py

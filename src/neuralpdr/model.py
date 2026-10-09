@@ -1,5 +1,5 @@
 import math
-from typing import Callable
+from collections.abc import Callable
 
 import equinox as eqx
 import jax
@@ -22,7 +22,7 @@ class LatentMLP(eqx.Module):
         n_input_features: int,
         width: int,
         depth: int,
-        key: jax.random.PRNGKey,
+        key: jax.Array,
         activation: Callable,
         final_activation: Callable | None = None,
         n_output_features: int | None = None,
@@ -60,7 +60,7 @@ def get_flexible_block(
     input_size: int,
     output_size: int,
     layers: list[int],
-    key: jax.random.PRNGKey,
+    key: jax.Array,
     activation,
     final_activation=None,
 ):
@@ -69,7 +69,7 @@ def get_flexible_block(
         eqx.nn.Linear(input_size, layers[0], key=layer_keys[0]),
         eqx.nn.Lambda(activation),
     ]
-    for idx, (s1, s2) in enumerate(zip(layers[:-1], layers[1:])):
+    for idx, (s1, s2) in enumerate(zip(layers[:-1], layers[1:], strict=True)):
         jax_layers.append(
             eqx.nn.Linear(s1, s2, key=layer_keys[idx + 2])
         )  # start after two first keys
@@ -207,7 +207,7 @@ class EncoderEvolveDecoder(eqx.Module):
 
     def __call__(
         self, ivs: jax.Array, y: jax.Array, aux: jax.Array
-    ) -> (jax.Array, jax.Array, jax.Array, jax.Array):
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
         # encode
         z = jax.vmap(self.enc, in_axes=(0,))(y)
         initial_z = z[0]
@@ -257,7 +257,7 @@ class trunc_init:
         self.lower = lower
         self.upper = upper
 
-    def __call__(self, weight: jax.Array, key: jax.random.PRNGKey) -> jax.Array:
+    def __call__(self, weight: jax.Array, key: jax.Array) -> jax.Array:
         """Initialize the weights of the neural network with a truncated normal distribution.
 
         Args:
@@ -320,8 +320,8 @@ def get_norm(mlp: eqx.Module, order: int = 1) -> list[jax.Array]:
 
 def init_linear_weight(
     model: eqx.Module,
-    init_fn: Callable[[jax.Array, jax.random.PRNGKey], jax.Array],
-    key: jax.random.PRNGKey,
+    init_fn: Callable[[jax.Array, jax.Array], jax.Array],
+    key: jax.Array,
 ) -> eqx.Module:
     """Initialize the weights of the neural network.
 
@@ -336,7 +336,9 @@ def init_linear_weight(
     weights = get_weights(model)
     new_weights = [
         init_fn(weight, subkey)
-        for weight, subkey in zip(weights, jax.random.split(key, len(weights)))
+        for weight, subkey in zip(
+            weights, jax.random.split(key, len(weights)), strict=True
+        )
     ]
     new_model = eqx.tree_at(get_weights, model, new_weights)
     return new_model

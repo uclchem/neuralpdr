@@ -37,9 +37,11 @@ dependencies = [
     "optax==0.2.8",
     "orbax",
     "pandas",
+    "pre-commit>=4.6.2",
     "pydantic",
     "pytest",
     "ray",
+    "ruff>=0.16.10",
     "tomlkit",
     "tqdm",
 ]
@@ -55,3 +57,13 @@ markers = ["integration: integration tests"]
 filterwarnings = [
     "ignore:jsonschema.RefResolver is deprecated:DeprecationWarning",
 ]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+ignore = ["F722"]  # jaxtyping shape strings, e.g. Float[Array, "T F"]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+check_untyped_defs = true
+files = "src"

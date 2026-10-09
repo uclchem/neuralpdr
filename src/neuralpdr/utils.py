@@ -1,8 +1,9 @@
+import subprocess
+from collections.abc import Sequence
+
 import chex
 import jax.numpy as jnp
 import optax
-from typing import Sequence
-import subprocess
 
 
 def get_git_info() -> dict[str, str]:
@@ -45,7 +46,7 @@ def join_schedules(
 
     def schedule(step: chex.Numeric) -> chex.Numeric:
         output = schedules[0](step)
-        for boundary, schedule in zip(boundaries, schedules[1:]):
+        for boundary, schedule in zip(boundaries, schedules[1:], strict=True):
             output = jnp.where(step < boundary, output, schedule(step - boundary))
         return output
 

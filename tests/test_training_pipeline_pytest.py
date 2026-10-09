@@ -1,10 +1,11 @@
-from dataclasses import replace
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
 from neuralpdr.config import LearningScheme, read_conf, write_conf
 
 pytestmark = pytest.mark.integration
@@ -76,9 +77,9 @@ def test_training_pipeline_integration(version, tmp_path: Path):
     Uses the 128-sample test datasets and runs a single epoch of the first learning scheme.
     """
     base_config = BASE_CONFIGS.get(version)
-    assert (
-        base_config is not None and base_config.exists()
-    ), f"Base config for {version} not found: {base_config}"
+    assert base_config is not None and base_config.exists(), (
+        f"Base config for {version} not found: {base_config}"
+    )
 
     # Prepare output dir
     out_dir = tmp_path / f"training_output_{version}"
@@ -93,7 +94,7 @@ def test_training_pipeline_integration(version, tmp_path: Path):
     # Run the training script via subprocess to mimic user CLI
     cmd = [
         sys.executable,
-        str((PROJECT_ROOT / "src" / "neuralpdr" / "train.py")),
+        str(PROJECT_ROOT / "src" / "neuralpdr" / "train.py"),
         str(cfg_path),
     ]
     env = dict(**os.environ)
@@ -125,9 +126,9 @@ def test_training_pipeline_integration(version, tmp_path: Path):
     # Basic output assertions
     expected_files = ["hyperparameters.json", "data_metadata.json"]
     for ef in expected_files:
-        assert (
-            out_dir / ef
-        ).exists(), f"Missing expected output file: {ef} in {out_dir}"
+        assert (out_dir / ef).exists(), (
+            f"Missing expected output file: {ef} in {out_dir}"
+        )
 
     # Optional: at least one weights file (may not always exist depending on config)
     weight_files = list(out_dir.glob("weights_epoch_*.eqx"))
