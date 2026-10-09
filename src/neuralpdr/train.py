@@ -625,7 +625,7 @@ def main(conf: Latent | FNO):
             timeseries_fractions,
         )
     learning_rate_scheduler = join_schedules(
-        learning_rate_scheduler, np.cumsum(boundaries).tolist()
+        learning_rate_scheduler, np.cumsum(boundaries[:-1]).tolist()
     )
     # optim = optax.adamw(
     #     learning_rate=learning_rate_scheduler, weight_decay=conf.weight_decay
