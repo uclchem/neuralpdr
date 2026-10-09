@@ -2,29 +2,29 @@
 import argparse
 import json
 import os
-from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 import equinox as eqx
 import h5py
 import jax
-import numpy as np
 from jaxtyping import Array, ArrayLike
+import numpy as np
 from tqdm import tqdm
 
 from neuralpdr.config import (
-    Activation,
     AUXNorm,
+    Activation,
     DataMetadata,
     DataNorm,
     Features,
     IVNorm,
     Latent,
     Norms,
-    read_as,
     read_conf,
+    read_as,
     to_json,
 )
 from neuralpdr.data import (
@@ -208,12 +208,12 @@ def main(opts: argparse.Namespace):
                 #     key: {}
                 #     for key in ["pred_y", "evolved_z", "auto_y", "direct_z", "steps"]
                 # }
-                outputs_per_model: dict[str, dict] = {}
-                for iv, data, aux, batch_keys in tqdm(
-                    zip(ivs, datas, auxs, keys_per_batch, strict=True),
+                outputs_per_model = {}
+                for ivs, data, aux, batch_keys in tqdm(
+                    zip(ivs, datas, auxs, keys_per_batch)
                 ):
                     t1 = datetime.now()
-                    outputs = make_predictions(mlp, iv, data, aux)
+                    outputs = make_predictions(mlp, ivs, data, aux)
                     t2 = datetime.now()
                     inference_time += t2 - t1
                     # Split each batch into individual arrays:
@@ -223,7 +223,7 @@ def main(opts: argparse.Namespace):
                         split_output = np.split(
                             outputs[output_key], outputs[output_key].shape[0]
                         )
-                        for key, output in zip(batch_keys, split_output, strict=True):
+                        for key, output in zip(batch_keys, split_output):
                             outputs_per_model[str(key)][output_key] = output
 
                     print(f"Batch took {t2 - t1}")
@@ -245,7 +245,7 @@ def main(opts: argparse.Namespace):
                     end_index = min(len(original_pdr), model_data["pred_y"].shape[1])
                     # print(model_key, pred_y.shape, original_pdr.shape, counter)
                     counter += 1
-                    for src_index, (_header, target_index) in enumerate(
+                    for src_index, (header, target_index) in enumerate(
                         prediction_original_indices.items()
                     ):
                         original_pdr[:end_index, target_index] = pred_y[
@@ -257,7 +257,7 @@ def main(opts: argparse.Namespace):
                         dtype=np.float32,
                     )
                     auto_y = dataloader.inv_normalize(model_data["auto_y"], "data")
-                    for src_index, (_header, target_index) in enumerate(
+                    for src_index, (header, target_index) in enumerate(
                         prediction_original_indices.items()
                     ):
                         original_pdr[:end_index, target_index] = auto_y[

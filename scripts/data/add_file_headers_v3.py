@@ -69,7 +69,7 @@ if __name__ == "__main__":
         model_keys = list(f.keys())
         model_keys = [key for key in model_keys if re.match(model_match_string, key)]
         print(
-            f"A random sample of the {len(model_keys)} keys we retrieved:\n",
+            "A random sample of the {} keys we retrieved:\n".format(len(model_keys)),
             "\n".join(random.choices(model_keys, k=10)),
         )
     with h5py.File(file_path, "a") as fh:

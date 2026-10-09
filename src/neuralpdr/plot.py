@@ -1,3 +1,5 @@
+import logging
+
 import equinox as eqx
 import matplotlib.pyplot as plt
 import numpy as np

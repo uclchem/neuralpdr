@@ -53,7 +53,7 @@ if __name__ == "__main__":
     break_condition = False
     pdr_buffer = {}
 
-    with open(data_path) as f:
+    with open(data_path, "r") as f:
         while True:
             header_line = f.readline()
             if not header_line:

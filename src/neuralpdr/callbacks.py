@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 
@@ -85,7 +86,7 @@ class JaxProfiler:
         epoch = kwargs["epoch"]
         step = kwargs["step"]
         if epoch == self.start_epoch and step == self.start_step:
-            jax.profiler.start_trace(self.profile_path, create_perfetto_trace=True)
+            jax.profiler.start_trace(self.trace_path, create_perfetto_trace=True)
         elif epoch == self.end_epoch and step == self.end_step:
             jax.profiler.stop_trace()
 

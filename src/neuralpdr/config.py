@@ -1,12 +1,13 @@
+from dataclasses import asdict
 import json
 import logging
 import os
-from dataclasses import asdict
 from pathlib import Path
 from string import Template
 from typing import Annotated, Literal, TypeAlias, TypeVar
 
 import tomlkit
+
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
@@ -197,7 +198,7 @@ def read_conf(path: str | Path) -> Conf:
 
 
 def write_conf(config: Conf, path: str | Path):
-    adapter: TypeAdapter = TypeAdapter(Conf)
+    adapter = TypeAdapter(Conf)
     data = adapter.dump_python(config, mode="json", exclude_none=True)
     # end_index=None is excluded by exclude_none=True, but TOML has no null type
     # and the field is required, so write back the sentinel value.

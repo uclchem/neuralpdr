@@ -1,18 +1,17 @@
 # Script to generate a grid of models
 # Standard libraries
 import os
-
-# For integrating shell commands in Python
-from subprocess import call
-
 import numpy as np
 import pandas as pd
+
+# Progress bar
+from tqdm import tqdm
 
 # Function used for Sobol sampling
 from scipy.stats import qmc
 
-# Progress bar
-from tqdm import tqdm
+# For integrating shell commands in Python
+from subprocess import call
 
 # For multiprocessing/parallel computing
 
@@ -79,7 +78,7 @@ class GridGenerator:
 
         # Reading params.dat and making the necessary changes
         with (
-            open("params.dat") as params,
+            open("params.dat", "r") as params,
             open(f"params_{output_prefix}.dat", "w") as params_output,
         ):
             params_lines = params.readlines()
