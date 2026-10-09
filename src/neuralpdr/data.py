@@ -373,7 +373,7 @@ class PDRLoader:
             fenceposts += [len(model_indices)]
         # Create the list of grouped model indices for the batches
         batch_indices_lil = [
-            self.model_indices[start:stop]
+            model_indices[start:stop]
             for start, stop in zip(fenceposts[:-1], fenceposts[1:], strict=True)
         ]
         # Ensure we shuffle the batches before load the data to ensure
