@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -29,14 +29,12 @@ from neuralpdr.callbacks import (
 )
 from neuralpdr.config import (
     FNO,
-    AUXNorm,
-    DataNorm,
     Features,
-    IVNorm,
     Latent,
     Norms,
     read_as,
     read_conf,
+    write_as,
 )
 from neuralpdr.data import (
     PDRLoader,
@@ -426,6 +424,21 @@ def make_predictions(mlp, iv, data, aux):
     return pred
 
 
+def _normalization_kwargs(norms: Norms | None) -> dict[str, dict]:
+    """PDRLoader keyword arguments for ``norms``; empty dicts make the loader compute them."""
+    if norms is None:
+        return {
+            "independent_variable_normalization_kwargs": {},
+            "features_normalization_kwargs": {},
+            "auxiliary_features_normalization_kwargs": {},
+        }
+    return {
+        "independent_variable_normalization_kwargs": asdict(norms.iv),
+        "features_normalization_kwargs": asdict(norms.data),
+        "auxiliary_features_normalization_kwargs": asdict(norms.aux),
+    }
+
+
 def get_config() -> Latent | FNO:
     parser = argparse.ArgumentParser(description="Parse configuration file")
     parser.add_argument(
@@ -445,17 +458,16 @@ def main(conf: Latent | FNO):
 
     input_features = read_as(conf.input_features_file, Features)
 
-    if conf.normalisations_file:
-        if conf.normalisations_file.exists():
-            normalization_parameters = read_as(conf.normalisations_file, Norms)
-        else:
-            logging.warning(
-                f"normalisations_file {conf.normalisations_file!r} not found; "
-                "using default (zero-mean, unit-std) normalization"
-            )
-            normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
-    else:
-        normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
+    # Without a normalisation file, the training loader computes the statistics
+    # from the training data; they are then saved and reused for validation.
+    normalization_parameters: Norms | None = None
+    if conf.normalisations_file and conf.normalisations_file.exists():
+        normalization_parameters = read_as(conf.normalisations_file, Norms)
+    elif conf.normalisations_file:
+        logging.warning(
+            f"normalisations_file {conf.normalisations_file!r} not found; "
+            "computing the normalisation from the training data"
+        )
 
     # # After parameters are set, get the information of the git repository.
     # conf.update(get_git_info())
@@ -485,14 +497,23 @@ def main(conf: Latent | FNO):
         model_indices=train_indices,
         batch_size=conf.batch_size,
         stage="train",
-        independent_variable_normalization_kwargs=asdict(normalization_parameters.iv),
-        features_normalization_kwargs=asdict(normalization_parameters.data),
-        auxiliary_features_normalization_kwargs=asdict(normalization_parameters.aux),
+        **_normalization_kwargs(normalization_parameters),
         collate_fn=pad_and_stack,
         batch_permutation_function=log_semi_sorter,
         use_cache=True,
         batch_subsampling=conf.training_batch_subsampling,
     )
+    if normalization_parameters is None:
+        normalization_parameters = Norms.from_parameters(
+            train_dataloader.get_normalization()
+        )
+        normalisations_file = save_file_path / "normalisations.toml"
+        write_as(normalization_parameters, normalisations_file)
+        # Record the file in the saved hyperparameters, so inference uses it too.
+        conf = replace(conf, normalisations_file=normalisations_file)
+        print(
+            f"Saved the normalisation computed from the training data to {normalisations_file}"
+        )
     val_dataloader = PDRLoader(
         dataset_path=conf.dataset_path,
         independent_variable=input_features.iv,
@@ -502,9 +523,7 @@ def main(conf: Latent | FNO):
         model_indices=val_indices,
         batch_size=conf.batch_size,
         stage="val",
-        independent_variable_normalization_kwargs=asdict(normalization_parameters.iv),
-        features_normalization_kwargs=asdict(normalization_parameters.data),
-        auxiliary_features_normalization_kwargs=asdict(normalization_parameters.aux),
+        **_normalization_kwargs(normalization_parameters),
         collate_fn=pad_and_stack,
         batch_permutation_function=log_semi_sorter,
         use_cache=True,

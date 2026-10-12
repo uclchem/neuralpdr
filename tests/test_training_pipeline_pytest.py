@@ -1,4 +1,6 @@
+import math
 import os
+import re
 import subprocess
 import sys
 from dataclasses import replace
@@ -70,7 +72,23 @@ def create_test_config(base_config_path: Path, tmp_dir: Path, version: str):
     return config, test_config_path
 
 
-@pytest.mark.parametrize("version", ["v1", "v2", "v3"])
+@pytest.mark.parametrize(
+    "version",
+    [
+        "v1",
+        pytest.param(
+            "v2",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "v2 header has 39 names for 41 data columns, so 'visual_extinction' "
+                    "reads a non-monotonic row index (see scripts/data/v2_add_headers.py)"
+                ),
+            ),
+        ),
+        "v3",
+    ],
+)
 def test_training_pipeline_integration(version, tmp_path: Path):
     """Integration test that mirrors running `python src/neuralpdr/train.py config.yaml`.
 
@@ -113,7 +131,7 @@ def test_training_pipeline_integration(version, tmp_path: Path):
             pass
 
     try:
-        subprocess.run(
+        result = subprocess.run(
             cmd, check=True, capture_output=True, text=True, env=env, timeout=600
         )
     except subprocess.CalledProcessError as e:
@@ -129,6 +147,21 @@ def test_training_pipeline_integration(version, tmp_path: Path):
         assert (out_dir / ef).exists(), (
             f"Missing expected output file: {ef} in {out_dir}"
         )
+
+    # Training must produce finite losses; a NaN validation loss means the run
+    # silently diverged (e.g. a broken normalisation).
+    epoch_losses = re.findall(r"train Loss: (\S+), val Loss: (\S+)", result.stdout)
+    assert epoch_losses, f"No epoch losses found in stdout:\n{result.stdout}"
+    for train_loss, val_loss in epoch_losses:
+        assert math.isfinite(float(val_loss)), f"Non-finite val loss: {epoch_losses}"
+        assert float(train_loss) > 0.0, f"Every training batch was NaN: {epoch_losses}"
+
+    # Without a normalisation file, the computed one is saved and recorded for inference.
+    if config.normalisations_file is None or not config.normalisations_file.exists():
+        saved = out_dir / "normalisations.toml"
+        assert saved.exists(), f"Computed normalisation not saved in {out_dir}"
+        hyperparameters = read_conf(out_dir / "hyperparameters.json")
+        assert hyperparameters.normalisations_file == saved
 
     # Optional: at least one weights file (may not always exist depending on config)
     weight_files = list(out_dir.glob("weights_epoch_*.eqx"))

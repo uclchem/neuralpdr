@@ -17,11 +17,8 @@ from tqdm import tqdm
 from neuralpdr._typing import BatchAux, BatchData, BatchIV
 from neuralpdr.config import (
     Activation,
-    AUXNorm,
     DataMetadata,
-    DataNorm,
     Features,
-    IVNorm,
     Latent,
     Norms,
     read_as,
@@ -149,10 +146,17 @@ def main(opts: argparse.Namespace):
 
     input_features = read_as(hyperparameters.input_features_file, Features)
 
-    if hyperparameters.normalisations_file:
-        normalization_parameters = read_as(hyperparameters.normalisations_file, Norms)
-    else:
-        normalization_parameters = Norms(IVNorm(), AUXNorm(), DataNorm())
+    # Training records the file it normalised with in the hyperparameters; runs
+    # from before that may still have computed and saved one in the model directory.
+    normalisations_file = hyperparameters.normalisations_file or (
+        Path(opts.model_dir) / "normalisations.toml"
+    )
+    if not normalisations_file.exists():
+        raise RuntimeError(
+            f"{normalisations_file}: missing normalisation file; inference needs the "
+            "normalisation the model was trained with"
+        )
+    normalization_parameters = read_as(normalisations_file, Norms)
 
     # model_indices = text_from_h5(dataset_path, "model_ids")
     # model_df.columns = ["zeta_init", "radfield_init", "density_init"]

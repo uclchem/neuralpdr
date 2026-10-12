@@ -6,6 +6,7 @@ from pathlib import Path
 from string import Template
 from typing import Annotated, Literal, TypeAlias, TypeVar
 
+import numpy as np
 import tomlkit
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 from pydantic.dataclasses import dataclass
@@ -241,6 +242,33 @@ class Norms:
     aux: AUXNorm
     data: DataNorm
 
+    @classmethod
+    def from_parameters(cls, parameters: dict[str, dict]) -> "Norms":
+        """Build from a loader's ``normalization_parameters`` (``{"iv"|"aux"|"data": {"mean", "std", "eps"}}``).
+
+        Scalars and NumPy arrays are converted to the float and list fields of the
+        norm classes; a scalar aux ``eps`` is repeated for every aux feature.
+        """
+        iv, aux, data = parameters["iv"], parameters["aux"], parameters["data"]
+        aux_mean = np.atleast_1d(aux["mean"]).tolist()
+        return cls(
+            iv=IVNorm(
+                eps=float(np.squeeze(iv["eps"])),
+                mean=float(np.squeeze(iv["mean"])),
+                std=float(np.squeeze(iv["std"])),
+            ),
+            aux=AUXNorm(
+                eps=np.broadcast_to(aux["eps"], len(aux_mean)).tolist(),
+                mean=aux_mean,
+                std=np.atleast_1d(aux["std"]).tolist(),
+            ),
+            data=DataNorm(
+                eps=float(np.squeeze(data["eps"])),
+                mean=np.atleast_1d(data["mean"]).tolist(),
+                std=np.atleast_1d(data["std"]).tolist(),
+            ),
+        )
+
 
 @dataclass(frozen=True)
 class DataMetadata:
@@ -257,6 +285,12 @@ def read_as(path: str | Path, as_type: type[conf_t]) -> conf_t:
         raise RuntimeError(f"{path}: missing {as_type.__name__!r} file")
     parsed = _read_toml(path)
     return TypeAdapter(as_type).validate_python(parsed)
+
+
+def write_as(obj: Features | Norms | DataMetadata, path: str | Path) -> None:
+    """Write ``obj`` as TOML so that ``read_as(path, type(obj))`` reads it back."""
+    data = TypeAdapter(type(obj)).dump_python(obj, mode="json")
+    Path(path).write_text(tomlkit.dumps(data))
 
 
 def to_json(config: Conf | Features | Norms | DataMetadata) -> bytes:

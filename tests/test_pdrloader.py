@@ -19,11 +19,14 @@ Run tests:
     pytest tests/test_pdrloader.py -v
 """
 
+from dataclasses import asdict
 from pathlib import Path
 
 import h5py
+import numpy as np
 import pytest
 
+from neuralpdr.config import Norms, read_as, write_as
 from neuralpdr.data import PDRLoader, pad_and_stack
 
 # Dataset locations - prefer test datasets
@@ -161,6 +164,29 @@ class TestV1PDRLoader:
         assert norm_params["data"]["mean"].shape == (19,)
         assert norm_params["data"]["std"].shape == (19,)
 
+    def test_v1_normalization_round_trip(self, v1_config, tmp_path):
+        """Computed normalisation, saved and read back, normalises the data identically."""
+        computed = PDRLoader(**v1_config)
+        norms = Norms.from_parameters(computed.get_normalization())
+        path = tmp_path / "normalisations.toml"
+        write_as(norms, path)
+        read_back = read_as(path, Norms)
+        assert read_back == norms
+
+        reused = PDRLoader(
+            **v1_config,
+            independent_variable_normalization_kwargs=asdict(read_back.iv),
+            features_normalization_kwargs=asdict(read_back.data),
+            auxiliary_features_normalization_kwargs=asdict(read_back.aux),
+        )
+        # Computed statistics are float64 arrays, read-back ones Python floats, so
+        # the float32 data is normalised in float64 and float32 respectively.
+        for name in ("independent_series", "feature_series", "auxiliary_series"):
+            for key, expected in getattr(computed, name).items():
+                np.testing.assert_allclose(
+                    getattr(reused, name)[key], expected, rtol=1e-6, atol=1e-6
+                )
+
     def test_v1_iteration(self, v1_config):
         """Test iteration over batches."""
         loader = PDRLoader(**v1_config)
@@ -280,7 +306,7 @@ class TestV2PDRLoader:
         loader = PDRLoader(**v2_config)
 
         batch_count = 0
-        for iv_batch, data_batch, aux_batch in loader:
+        for _ in loader:
             batch_count += 1
 
         assert batch_count == len(loader)
@@ -393,7 +419,7 @@ class TestV3PDRLoader:
         loader = PDRLoader(**v3_config)
 
         batch_count = 0
-        for iv_batch, data_batch, aux_batch in loader:
+        for _ in loader:
             batch_count += 1
 
         assert batch_count == len(loader)
@@ -428,7 +454,8 @@ class TestPDRLoaderFeatures:
         # Order should be different (with very high probability for >10 models)
         if len(first_batch_models) >= 8:
             assert not all(
-                a == b for a, b in zip(first_batch_models, second_batch_models)
+                a == b
+                for a, b in zip(first_batch_models, second_batch_models, strict=False)
             )
 
     def test_inv_normalize(self):
