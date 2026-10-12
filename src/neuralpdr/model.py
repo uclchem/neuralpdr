@@ -1,5 +1,7 @@
+import abc
 import math
 from collections.abc import Callable
+from typing import Any, TypeAlias, TypeVar
 
 import equinox as eqx
 import jax
@@ -11,10 +13,41 @@ from diffrax import (
     Tsit5,
     diffeqsolve,
 )
+from jaxtyping import Array, Float, PRNGKeyArray, Scalar, ScalarLike
+
+from neuralpdr._typing import IV, Aux, Data, LatentSeries, SolverSteps
+
+M = TypeVar("M", bound=eqx.Module)
+
+# Outputs of a model for a single sample: the decoded rollout, the rollout in
+# latent space, the decoding of the encoded data, the encoded data and the
+# number of solver steps.
+ModelOutput: TypeAlias = tuple[Data, LatentSeries, Data, LatentSeries, SolverSteps]
+
+
+class SurrogateModel(eqx.Module):
+    """Interface that the training and inference code rely on.
+
+    A model maps a single (unbatched) sample to its predictions; batching is
+    done by the caller with ``eqx.filter_vmap``.
+    """
+
+    @abc.abstractmethod
+    def __call__(self, ivs: IV, y: Data, aux: Aux) -> ModelOutput:
+        """Predict the time series for a single sample.
+
+        Args:
+            ivs (IV): The independent variable
+            y (Data): The feature data
+            aux (Aux): The auxiliary data
+
+        Returns:
+            ModelOutput: The model outputs for this sample
+        """
 
 
 class LatentMLP(eqx.Module):
-    mlp: eqx.Module
+    mlp: eqx.nn.MLP
 
     # scale: jnp.ndarray
     def __init__(
@@ -22,7 +55,7 @@ class LatentMLP(eqx.Module):
         n_input_features: int,
         width: int,
         depth: int,
-        key: jax.Array,
+        key: PRNGKeyArray,
         activation: Callable,
         final_activation: Callable | None = None,
         n_output_features: int | None = None,
@@ -51,7 +84,9 @@ class LatentMLP(eqx.Module):
         )
         # self.scale = jnp.array(0.001)
 
-    def __call__(self, t, y, args):
+    def __call__(
+        self, t: ScalarLike, y: Float[Array, " L"], args: Float[Array, " A"]
+    ) -> Float[Array, " L"]:
         z = jnp.concatenate([y, args], axis=-1)
         return self.mlp(z)
 
@@ -60,12 +95,12 @@ def get_flexible_block(
     input_size: int,
     output_size: int,
     layers: list[int],
-    key: jax.Array,
-    activation,
-    final_activation=None,
-):
+    key: PRNGKeyArray,
+    activation: Callable,
+    final_activation: Callable | None = None,
+) -> eqx.nn.Sequential:
     layer_keys = jax.random.split(key, len(layers) + 2)
-    jax_layers = [
+    jax_layers: list[Callable[..., Any]] = [
         eqx.nn.Linear(input_size, layers[0], key=layer_keys[0]),
         eqx.nn.Lambda(activation),
     ]
@@ -147,10 +182,10 @@ def latent_solve_factory(model, initial_y, ivs, args):
 #     return mlp_with_aux(mlp, ts, args)
 
 
-class EncoderEvolveDecoder(eqx.Module):
-    latent_mlp: eqx.Module
-    enc: eqx.Module
-    dec: eqx.Module
+class EncoderEvolveDecoder(SurrogateModel):
+    latent_mlp: LatentMLP
+    enc: eqx.nn.Sequential
+    dec: eqx.nn.Sequential
 
     def __init__(
         self,
@@ -162,10 +197,10 @@ class EncoderEvolveDecoder(eqx.Module):
         latent_weight_scale,
         latent_weight_truncation,
         latent_bottleneck: int = 4,
-        n_aux_features: int = False,
+        n_aux_features: int = 0,
         *,
         latent_final_activation: Callable,
-        keys,
+        keys: list[PRNGKeyArray],
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -205,9 +240,7 @@ class EncoderEvolveDecoder(eqx.Module):
             activation=jax.nn.softplus,
         )
 
-    def __call__(
-        self, ivs: jax.Array, y: jax.Array, aux: jax.Array
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    def __call__(self, ivs: IV, y: Data, aux: Aux) -> ModelOutput:
         # encode
         z = jax.vmap(self.enc, in_axes=(0,))(y)
         initial_z = z[0]
@@ -257,15 +290,17 @@ class trunc_init:
         self.lower = lower
         self.upper = upper
 
-    def __call__(self, weight: jax.Array, key: jax.Array) -> jax.Array:
+    def __call__(
+        self, weight: Float[Array, "out in"], key: PRNGKeyArray
+    ) -> Float[Array, "out in"]:
         """Initialize the weights of the neural network with a truncated normal distribution.
 
         Args:
-            weight (jax.Array): The weight matrix to initialize
-            key (jax.random.PRNGKey): The random key to use for the initialization
+            weight (Float[Array, "out in"]): The weight matrix to initialize
+            key (PRNGKeyArray): The random key to use for the initialization
 
         Returns:
-            jax.Array: The initialized weight matrix
+            Float[Array, "out in"]: The initialized weight matrix
         """
         out, in_ = weight.shape
         stddev = math.sqrt(self.scale / in_)
@@ -289,14 +324,14 @@ def is_linear(layer: eqx.Module) -> bool:
     return isinstance(layer, eqx.nn.Linear)
 
 
-def get_weights(mlp: eqx.Module) -> list[jax.Array]:
+def get_weights(mlp: eqx.Module) -> list[Float[Array, "out in"]]:
     """Get the weights of the neural network
 
     Args:
         mlp (eqx.Module): The neural network
 
     Returns:
-        list[jax.Array]: List of the weights of the neural network
+        list[Float[Array, "out in"]]: List of the weights of the neural network
     """
     return [
         x.weight
@@ -305,7 +340,7 @@ def get_weights(mlp: eqx.Module) -> list[jax.Array]:
     ]
 
 
-def get_norm(mlp: eqx.Module, order: int = 1) -> list[jax.Array]:
+def get_norm(mlp: eqx.Module, order: int = 1) -> list[Scalar]:
     """Get the norms of the weights of the neural network
 
     Args:
@@ -313,25 +348,25 @@ def get_norm(mlp: eqx.Module, order: int = 1) -> list[jax.Array]:
         order (int, optional): The order of the norm. Defaults to 1.
 
     Returns:
-        list[jax.Array]: List of the norms of the weights of the neural network
+        list[Scalar]: List of the norms of the weights of the neural network
     """
     return [jnp.linalg.norm(w, ord=order) for w in get_weights(mlp)]
 
 
 def init_linear_weight(
-    model: eqx.Module,
-    init_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    key: jax.Array,
-) -> eqx.Module:
+    model: M,
+    init_fn: Callable[[Float[Array, "out in"], PRNGKeyArray], Float[Array, "out in"]],
+    key: PRNGKeyArray,
+) -> M:
     """Initialize the weights of the neural network.
 
     Args:
-        model (eqx.Module): The neural network
-        init_fn (callable): Function to initialize the weights with signature (weight: jax.Array, key: jax.random.PRNGKey) -> jax.Array
-        key (jax.random.PRNGKey): The random key to use for the initialization
+        model (M): The neural network, any equinox Module
+        init_fn (callable): Function to initialize the weights with signature (weight, key) -> weight
+        key (PRNGKeyArray): The random key to use for the initialization
 
     Returns:
-        eqx.Module: The neural network with newly initialized weights
+        M: The neural network with newly initialized weights, of the same type as ``model``
     """
     weights = get_weights(model)
     new_weights = [

@@ -1,11 +1,22 @@
+from pathlib import Path
+
 import equinox as eqx
 import matplotlib.pyplot as plt
 import numpy as np
 
+from neuralpdr.data import SeriesLoader
+from neuralpdr.model import SurrogateModel
+
 # from model import solve_ODE
 
 
-def plot_batch(mlp, loader, epoch=None, save_file_path=".", n_samples=16):
+def plot_batch(
+    mlp: SurrogateModel,
+    loader: SeriesLoader,
+    epoch: int | None = None,
+    save_file_path: Path = Path("."),
+    n_samples: int = 16,
+):
     av, data, aux = loader[np.random.randint(0, len(loader))]
     pred, z, ae_y, ae_z, _ = eqx.filter_vmap(mlp, in_axes=(0, 0, 0))(
         av[:, :, 0], data, aux

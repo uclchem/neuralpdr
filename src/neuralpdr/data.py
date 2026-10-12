@@ -1,10 +1,11 @@
+import abc
 import json
 import logging
 import pickle
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import reduce
 from pathlib import Path
-from typing import Protocol, TypeAlias
+from typing import Protocol, TypeAlias, TypeVar
 
 import h5py
 import jax.numpy as jnp
@@ -12,6 +13,8 @@ import numpy as np
 import pandas as pd
 from jaxtyping import Array, Float
 from tqdm import tqdm
+
+from neuralpdr._typing import BatchAux, BatchData, BatchIV, SampleSeries, SeriesGroup
 
 
 def text_from_h5(dataset_path: str | Path, key: str) -> list[str]:
@@ -24,18 +27,72 @@ def df_from_h5(dataset_path: str | Path, key: str, columns=None) -> pd.DataFrame
         return pd.DataFrame(h5f[key][:], columns=columns)
 
 
-ArrayList: TypeAlias = list[Float[Array, "..."]]
+# The batched data is a list of batches, or a single array with a leading
+# batch-index dimension N when all batches have the same shape.
+Batched: TypeAlias = list[Float[Array, "B T _"]] | Float[Array, "N B T _"]
 
 
 class CollateFunction(Protocol):
     def __call__(
         self,
-        *batches: list[np.ndarray],
+        *batches: list[SampleSeries],
         random_sample_number: int | None = None,
     ) -> list[Array]: ...
 
 
-class PDRLoader:
+# Either array type, returned as the same type.
+A = TypeVar("A", np.ndarray, Array)
+
+
+class SeriesLoader(abc.ABC):
+    """Interface that the training, inference and plotting code rely on.
+
+    A loader holds a dataset of samples, each consisting of series along one
+    independent variable (time, depth, ...): the independent variable itself,
+    the data features and the auxiliary features (see ``SeriesGroup``). It
+    serves them as normalised, padded batches. How samples are stored on disk
+    and normalised is up to the implementation.
+    """
+
+    # Identifiers of the samples, in the order they are batched.
+    model_indices: list[str]
+    # Names of the data features, in column order.
+    data_features: list[str]
+
+    @abc.abstractmethod
+    def __len__(self) -> int:
+        """Return the number of batches."""
+
+    @abc.abstractmethod
+    def __getitem__(self, idx: int) -> tuple[BatchIV, BatchData, BatchAux]:
+        """Return the batch at index ``idx``."""
+
+    @abc.abstractmethod
+    def __iter__(self) -> Iterator[tuple[BatchIV, BatchData, BatchAux]]:
+        """Iterate over all batches."""
+
+    @abc.abstractmethod
+    def get_all_batches(self) -> tuple[Batched, Batched, Batched]:
+        """Return all batches of the independent variable, data and auxiliary data."""
+
+    @abc.abstractmethod
+    def get_batch_keys(self) -> list[list[str]]:
+        """Return the sample identifiers in each batch."""
+
+    @abc.abstractmethod
+    def shuffle_batches(self) -> None:
+        """Reshuffle the samples into new batches."""
+
+    @abc.abstractmethod
+    def set_timeseries_fraction(self, frac: float | int) -> None:
+        """Limit the batches to a fraction (float) or number of steps (int) of each series."""
+
+    @abc.abstractmethod
+    def inv_normalize(self, data: A, series_key: SeriesGroup) -> A:
+        """Transform normalised data of the given group back to original units."""
+
+
+class PDRLoader(SeriesLoader):
     def __init__(
         self,
         dataset_path: Path,
@@ -47,9 +104,9 @@ class PDRLoader:
         model_df: pd.DataFrame | None = None,
         batch_size: int = 16,
         stage: str = "",
-        independent_variable_normalization_kwargs: dict = None,
-        features_normalization_kwargs: dict = None,
-        auxiliary_features_normalization_kwargs: dict = None,
+        independent_variable_normalization_kwargs: dict | None = None,
+        features_normalization_kwargs: dict | None = None,
+        auxiliary_features_normalization_kwargs: dict | None = None,
         batch_permutation_function: Callable | None = None,
         collate_fn: CollateFunction | None = None,
         load_first_n_keys: int | None = None,
@@ -124,14 +181,14 @@ class PDRLoader:
         self.n_data_features = len(self.indices_features)
 
         # Create dicts that store the data in memory, to allow for easy reshuffling on the fly.
-        self.feature_data_by_model: dict[str, np.ndarray] = {}
-        self.independent_data_by_model: dict[str, np.ndarray] = {}
-        self.auxiliary_data_by_model: dict[str, np.ndarray] = {}
+        self.feature_data_by_model: dict[str, SampleSeries] = {}
+        self.independent_data_by_model: dict[str, SampleSeries] = {}
+        self.auxiliary_data_by_model: dict[str, SampleSeries] = {}
 
         # Create lists to store the batched data, or an array of jax data with shape (n_batches, batch_size, av_points, n_features)
-        self.batched_feature_data: ArrayList | Array = []
-        self.batched_independent_data: ArrayList | Array = []
-        self.batched_auxiliary_data: ArrayList | Array = []
+        self.batched_feature_data: Batched = []
+        self.batched_independent_data: Batched = []
+        self.batched_auxiliary_data: Batched = []
         # Store all the names of each of the samples in a list
         self.batched_indices: list[list] = []
 
@@ -266,8 +323,8 @@ class PDRLoader:
 
     def normalize(
         self,
-        dataset: dict[str, np.ndarray],
-        type_: str,
+        dataset: dict[str, SampleSeries],
+        type_: SeriesGroup,
         mean: float | np.ndarray | None = None,
         std: float | np.ndarray | None = None,
         eps: float | np.ndarray = 1e-20,
@@ -275,7 +332,7 @@ class PDRLoader:
         """Add a small epsilon, log transform it and then standardize it
 
         Args:
-            dataset (list[np.ndarray]): List of numpy arrays to normalize
+            dataset (dict[str, SampleSeries]): Dictionary of numpy arrays to normalize
             type_ (str, optional): Choose between normalizing "data", "aux" or "iv".
             mean (float | np.ndarray, optional): Mean for standardization, must either be scalar or the same shape as the last dimension of the data
             std (float| np.ndarray, optional): Standard deviation for standardization, must either be scalar or the same shape as the last dimension of the data
@@ -330,14 +387,15 @@ class PDRLoader:
         """
         return self.normalization_parameters
 
-    def inv_normalize(self, data: np.ndarray, series_key: str) -> np.ndarray:
-        """Inverts the normalization process for the visual extinction data.
+    def inv_normalize(self, data: A, series_key: SeriesGroup) -> A:
+        """Inverts the normalization process for the given group of series.
 
         Args:
-            data (np.ndarray): Array of visual extinction data that is normalized
+            data (np.ndarray | Array): Normalised data
+            series_key (SeriesGroup): Which group the data belongs to: "iv", "data" or "aux"
 
         Returns:
-            np.ndarray:  Visual extinction data is original coordinates
+            np.ndarray | Array: The data in original units, of the same array type as ``data``
         """
         mean = np.array(self.normalization_parameters[series_key]["mean"])
         std = np.array(self.normalization_parameters[series_key]["std"])
@@ -345,7 +403,9 @@ class PDRLoader:
 
     def get_data(
         self,
-    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
+    ) -> tuple[
+        dict[str, SampleSeries], dict[str, SampleSeries], dict[str, SampleSeries]
+    ]:
         """Return the data and av dictionaries
 
         Returns:
@@ -373,7 +433,7 @@ class PDRLoader:
             fenceposts += [len(model_indices)]
         # Create the list of grouped model indices for the batches
         batch_indices_lil = [
-            self.model_indices[start:stop]
+            model_indices[start:stop]
             for start, stop in zip(fenceposts[:-1], fenceposts[1:], strict=True)
         ]
         # Ensure we shuffle the batches before load the data to ensure
@@ -422,11 +482,11 @@ class PDRLoader:
                 ]
             )
 
-    def get_all_batches(self):
+    def get_all_batches(self) -> tuple[Batched, Batched, Batched]:
         """Get all the batches of data and av
 
         Returns:
-            tuple[list[FloatArrayLike] | Array, ...]: Tuple with the batched av and data
+            tuple[Batched, Batched, Batched]: Tuple with the batched independent variable, data and auxiliary data
         """
         return (
             self.batched_independent_data,
@@ -497,16 +557,14 @@ class PDRLoader:
         """
         return len(self.batched_feature_data)
 
-    def __getitem__(
-        self, idx: int
-    ) -> tuple[np.ndarray | Array, np.ndarray | Array, np.ndarray | Array]:
+    def __getitem__(self, idx: int) -> tuple[BatchIV, BatchData, BatchAux]:
         """Get the batched data and av at a given batch index, returning them as jax arrays or list of arrays
 
         Args:
             idx (int): Index of the batch
 
         Returns:
-            tuple[list[np.ndarray] | Array, list[np.ndarray] | Array, list[np.ndarray] | Array]: Tuple with the batched av and data
+            tuple[BatchIV, BatchData, BatchAux]: Tuple with the batched independent variable, data and auxiliary data
         """
         return (
             self.batched_independent_data[idx],
@@ -514,7 +572,7 @@ class PDRLoader:
             self.batched_auxiliary_data[idx],
         )
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[tuple[BatchIV, BatchData, BatchAux]]:
         return iter(
             zip(
                 self.batched_independent_data,
@@ -577,12 +635,12 @@ def load_split(savepath: Path) -> list[str]:
 
 
 def pad_and_stack(
-    *batches: list[np.ndarray], random_sample_number: int | None = None
+    *batches: list[SampleSeries], random_sample_number: int | None = None
 ) -> list[Array]:
     """Pad and stack the batch of data
 
     Args:
-        *batches (list[np.ndarray]): List of numpy arrays to stack
+        *batches (list[SampleSeries]): Lists of variable length series to pad and stack
 
     Returns:
         list[Array]: Stacked numpy array
@@ -629,7 +687,7 @@ def pad_and_stack(
 
 def log_semi_sorter(
     model_indices: list[str],
-    feature_data_by_model: dict[str, np.ndarray],
+    feature_data_by_model: dict[str, SampleSeries],
     log_noise_parameter: float = 0.01,
 ):
     lengths = np.array([len(feature_data_by_model[model]) for model in model_indices])

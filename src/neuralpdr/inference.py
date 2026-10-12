@@ -14,6 +14,7 @@ import numpy as np
 from jaxtyping import Array, ArrayLike
 from tqdm import tqdm
 
+from neuralpdr._typing import BatchAux, BatchData, BatchIV
 from neuralpdr.config import (
     Activation,
     AUXNorm,
@@ -34,6 +35,7 @@ from neuralpdr.data import (
 )
 from neuralpdr.model import (
     EncoderEvolveDecoder,
+    SurrogateModel,
     # get_model,
     # init_linear_weight,
     # solve_ODE,
@@ -69,7 +71,9 @@ _ACTIVATION: dict[Activation, Callable[[ArrayLike], Array]] = {
 
 
 @eqx.filter_jit
-def make_predictions(mlp, batch_iv, batch_data, batch_aux):
+def make_predictions(
+    mlp: SurrogateModel, batch_iv: BatchIV, batch_data: BatchData, batch_aux: BatchAux
+) -> dict[str, Array]:
     pred_y, evolved_z, auto_y, direct_z, steps = eqx.filter_vmap(
         mlp, in_axes=(0, 0, 0), out_axes=0
     )(batch_iv[:, :, 0], batch_data, batch_aux)
@@ -82,7 +86,9 @@ def make_predictions(mlp, batch_iv, batch_data, batch_aux):
     }
 
 
-def checkpoint_deserializer(hyperparameters_path, weights_path):
+def checkpoint_deserializer(
+    hyperparameters_path: str | Path, weights_path: str | Path
+) -> tuple[SurrogateModel, Latent]:
     match read_conf(hyperparameters_path):
         case Latent() as hp:
             ...
