@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from functools import partial
 from pathlib import Path
+from typing import TypedDict
 
 import equinox as eqx
 import jax
@@ -336,7 +337,13 @@ def train(
     return train_loss, val_loss
 
 
-def _normalization_kwargs(norms: Norms | None) -> dict[str, dict]:
+class _NormalizationKwargs(TypedDict):
+    independent_variable_normalization_kwargs: dict
+    features_normalization_kwargs: dict
+    auxiliary_features_normalization_kwargs: dict
+
+
+def _normalization_kwargs(norms: Norms | None) -> _NormalizationKwargs:
     """PDRLoader keyword arguments for ``norms``; empty dicts make the loader compute them."""
     if norms is None:
         return {
