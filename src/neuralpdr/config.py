@@ -295,4 +295,9 @@ def write_as(obj: Features | Norms | DataMetadata, path: str | Path) -> None:
 
 def to_json(config: Conf | Features | Norms | DataMetadata) -> bytes:
     adapter = TypeAdapter(type(config))
-    return adapter.dump_json(config, exclude_none=True)
+    data = adapter.dump_python(config, mode="json", exclude_none=True)
+    # As in write_conf: end_index=None is excluded by exclude_none=True, but the
+    # field is required when the config is read back, so write the sentinel value.
+    if isinstance(config, Latent | FNO) and "end_index" not in data:
+        data["end_index"] = -1
+    return json.dumps(data).encode()

@@ -6,6 +6,7 @@ from neuralpdr.config import (
     LearningScheme,
     Split,
     read_conf,
+    to_json,
     write_conf,
 )
 
@@ -44,3 +45,16 @@ def test_learning_scheme_err():
 def test_write_conf(path, tmp_path):
     conf = read_conf(path)
     write_conf(conf, tmp_path / "config.toml")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [f"configs/{f}" for f in ("v1/ml4ps_paper/mlps_model_1.toml", "v2/base.toml")],
+)
+def test_to_json_round_trip(path, tmp_path):
+    """The saved hyperparameters.json reads back as the same config, also with
+    end_index = -1 (None), which to_json would otherwise leave out."""
+    conf = read_conf(path)
+    saved = tmp_path / "hyperparameters.json"
+    saved.write_bytes(to_json(conf))
+    assert read_conf(saved) == conf
