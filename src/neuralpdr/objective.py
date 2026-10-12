@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Float, Scalar
 
-from neuralpdr._typing import BatchAux, BatchData, BatchIV
+from neuralpdr.data import SeriesBatch
 from neuralpdr.model import SurrogateModel
 
 # Reduces a per-device value over the devices along a mesh axis, e.g. jax.lax.pmean.
@@ -32,14 +32,14 @@ class Objective(eqx.Module):
     def __call__(
         self,
         model: SurrogateModel,
-        batch: tuple[BatchIV, BatchData, BatchAux],
+        batch: SeriesBatch,
         weights: Float[Array, " W"],
     ) -> tuple[Scalar, dict[str, Array]]:
         """Compute the training loss and metrics of a batch.
 
         Args:
             model (SurrogateModel): The model to train
-            batch (tuple[BatchIV, BatchData, BatchAux]): One batch, or its shard on this device
+            batch (SeriesBatch): One batch, or its shard on this device
             weights (Float[Array, " W"]): The weights of the loss terms, see ``weights``
 
         Returns:
@@ -51,9 +51,7 @@ class Objective(eqx.Module):
         """Return the weights of the loss terms in the given epoch."""
 
     @abc.abstractmethod
-    def validation_loss(
-        self, model: SurrogateModel, batch: tuple[BatchIV, BatchData, BatchAux]
-    ) -> Scalar:
+    def validation_loss(self, model: SurrogateModel, batch: SeriesBatch) -> Scalar:
         """Compute the validation loss of a batch."""
 
 
@@ -79,28 +77,27 @@ class LatentODEObjective(Objective):
     def __call__(
         self,
         model: SurrogateModel,
-        batch: tuple[BatchIV, BatchData, BatchAux],
+        batch: SeriesBatch,
         weights: Float[Array, " 3"],
     ) -> tuple[Scalar, dict[str, Array]]:
-        batch_iv, batch_data, batch_aux = batch
         output = eqx.filter_vmap(model, in_axes=(0, 0, 0), out_axes=0)(
-            batch_iv[:, :, 0], batch_data, batch_aux
+            batch.iv, batch.data, batch.aux
         )
         pred_y = output.pred
         evolved_z = output.extras["evolved_z"]
         auto_y = output.extras["auto_y"]
         direct_z = output.extras["direct_z"]
         steps = output.extras["steps"]
-        # Catch the zero padded cells:
-        valid_time_mask = jnp.diff(batch_iv, axis=1, prepend=1.0) != 0.0
+        # Catch the padded cells:
+        valid_time_mask = batch.mask[:, :, None]
         # Catch the infinite values caused by max_step:
         valid_pred_mask = jnp.isfinite(pred_y[:, :, :1])
         # Obtain the loss for every sample in the batch after timestep 0.
         rollout_loss = jnp.mean(
-            valid_time_mask * valid_pred_mask * (pred_y - batch_data) ** 2
+            valid_time_mask * valid_pred_mask * (pred_y - batch.data) ** 2
         )
         latent_loss = jnp.mean(valid_time_mask * (direct_z - evolved_z) ** 2)
-        auto_loss = jnp.mean(valid_time_mask * (auto_y - batch_data) ** 2)
+        auto_loss = jnp.mean(valid_time_mask * (auto_y - batch.data) ** 2)
         total_loss = (
             weights[0] * rollout_loss
             + weights[1] * latent_loss
@@ -132,12 +129,9 @@ class LatentODEObjective(Objective):
         )
         return jnp.array([term0, term1, term2]).T[epoch]
 
-    def validation_loss(
-        self, model: SurrogateModel, batch: tuple[BatchIV, BatchData, BatchAux]
-    ) -> Scalar:
-        batch_iv, batch_data, batch_aux = batch
+    def validation_loss(self, model: SurrogateModel, batch: SeriesBatch) -> Scalar:
         output = eqx.filter_vmap(model, in_axes=(0, 0, 0), out_axes=0)(
-            batch_iv[:, :, 0], batch_data, batch_aux
+            batch.iv, batch.data, batch.aux
         )
-        valid_mask = jnp.diff(batch_iv, axis=1, prepend=1.0) != 0.0
-        return jnp.mean(valid_mask * (output.pred - batch_data[:, :, :]) ** 2)
+        valid_mask = batch.mask[:, :, None]
+        return jnp.mean(valid_mask * (output.pred - batch.data) ** 2)

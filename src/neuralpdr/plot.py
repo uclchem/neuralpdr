@@ -18,8 +18,9 @@ def plot_batch(
     n_samples: int = 16,
 ):
     batch_index = np.random.randint(0, len(loader))
-    av, data, aux = loader[batch_index]
-    output = eqx.filter_vmap(mlp, in_axes=(0, 0, 0))(av[:, :, 0], data, aux)
+    batch = loader[batch_index]
+    av, data, aux = batch.iv, batch.data, batch.aux
+    output = eqx.filter_vmap(mlp, in_axes=(0, 0, 0))(av, data, aux)
     pred = output.pred
     z = output.extras["evolved_z"]
     ae_y = output.extras["auto_y"]
@@ -48,21 +49,21 @@ def plot_batch(
     for ax in axes:
         if ax_count < n_features:
             ax.plot(
-                av[:, :, 0].T,
+                av.T,
                 data[:, :, ax_count].T,
                 linestyle="solid",
                 label=names if ax_count == 0 else None,
             )
             ax.set_prop_cycle(None)
             ax.plot(
-                av[:, :, 0].T,
+                av.T,
                 ae_y[:, :, ax_count].T,
                 linestyle="dotted",
                 # label="autoregress" if ax_count == 0 else None,
             )
             ax.set_prop_cycle(None)
             ax.plot(
-                av[:, :, 0].T,
+                av.T,
                 pred[:, :, ax_count].T,
                 linestyle="dashed",
                 # label="rollout" if ax_count == 0 else None,
@@ -70,13 +71,13 @@ def plot_batch(
             ax.set_ylabel(loader.data_features[ax_count])
         elif ax_count < n_features + aux.shape[-1]:
             ax.plot(
-                av[:, :, 0].T,
+                av.T,
                 aux[:, :, ax_count % n_features].T,
                 linestyle="solid",
             )
         else:
-            ax.plot(av[0, :, 0].reshape(-1, 1), z[0, :, :])
-            ax.plot(av[0, :, 0].reshape(-1, 1), ae_z[0, :, :], linestyle="solid")
+            ax.plot(av[0, :].reshape(-1, 1), z[0, :, :])
+            ax.plot(av[0, :].reshape(-1, 1), ae_z[0, :, :], linestyle="solid")
             break
         ax_count += 1
     fig.legend(ncol=3, loc="upper center")

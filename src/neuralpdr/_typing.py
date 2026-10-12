@@ -15,12 +15,12 @@ JAX arrays are used from batching onwards.
 from typing import Literal, TypeAlias
 
 import numpy as np
-from jaxtyping import Array, Float, Int
+from jaxtyping import Array, Bool, Float, Int
 
 # The series of one sample (one model) in the dataset, from loading up
 # to batching. Covers the features (F columns), auxiliary features (A columns)
 # and independent variable (1 column) alike. Each sample has its own length T,
-# so these are not padded yet; ``pad_and_stack`` turns lists of them into the
+# so these are not padded yet; ``SeriesBatcher`` turns lists of them into the
 # Batch* arrays below. They are NumPy arrays because the loader modifies them
 # in place (NaN replacement, normalisation).
 SampleSeries: TypeAlias = Float[np.ndarray, "T _"]
@@ -32,10 +32,12 @@ Aux: TypeAlias = Float[Array, "T A"]
 LatentSeries: TypeAlias = Float[Array, "T L"]
 SolverSteps: TypeAlias = Int[Array, ""]
 
-# Batched, padded samples, as produced by the data loader.
-BatchIV: TypeAlias = Float[Array, "B T 1"]
+# Batched, padded samples, as produced by the data loader (the fields of a
+# ``SeriesBatch``). The mask is True for the steps used in the loss.
+BatchIV: TypeAlias = Float[Array, "B T"]
 BatchData: TypeAlias = Float[Array, "B T F"]
 BatchAux: TypeAlias = Float[Array, "B T A"]
+BatchMask: TypeAlias = Bool[Array, "B T"]
 
 # The three groups of series every sample consists of: the independent variable,
 # the (predicted) data features and the auxiliary (input-only) features.

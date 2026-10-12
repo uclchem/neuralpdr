@@ -14,7 +14,6 @@ import numpy as np
 from jaxtyping import Array, ArrayLike
 from tqdm import tqdm
 
-from neuralpdr._typing import BatchAux, BatchData, BatchIV
 from neuralpdr.config import (
     Activation,
     DataMetadata,
@@ -27,8 +26,9 @@ from neuralpdr.config import (
 )
 from neuralpdr.data import (
     PDRLoader,
+    SeriesBatch,
+    SeriesBatcher,
     log_semi_sorter,
-    pad_and_stack,
 )
 from neuralpdr.model import (
     EncoderEvolveDecoder,
@@ -68,11 +68,9 @@ _ACTIVATION: dict[Activation, Callable[[ArrayLike], Array]] = {
 
 
 @eqx.filter_jit
-def make_predictions(
-    mlp: SurrogateModel, batch_iv: BatchIV, batch_data: BatchData, batch_aux: BatchAux
-) -> dict[str, Array]:
+def make_predictions(mlp: SurrogateModel, batch: SeriesBatch) -> dict[str, Array]:
     output = eqx.filter_vmap(mlp, in_axes=(0, 0, 0), out_axes=0)(
-        batch_iv[:, :, 0], batch_data, batch_aux
+        batch.iv, batch.data, batch.aux
     )
     return {"pred_y": output.pred, **output.extras}
 
@@ -200,24 +198,23 @@ def main(opts: argparse.Namespace):
                     auxiliary_features_normalization_kwargs=asdict(
                         normalization_parameters.aux
                     ),
-                    collate_fn=pad_and_stack,
+                    batcher=SeriesBatcher(),
                     batch_permutation_function=log_semi_sorter,  # lambda x, y: x,  # do not shuffle
                     use_cache=False,
                     drop_last=False,
                 )
 
-                ivs, datas, auxs = dataloader.get_all_batches()
                 keys_per_batch = dataloader.get_batch_keys()
                 # outputs_per_key = {
                 #     key: {}
                 #     for key in ["pred_y", "evolved_z", "auto_y", "direct_z", "steps"]
                 # }
                 outputs_per_model: dict[str, dict] = {}
-                for iv, data, aux, batch_keys in tqdm(
-                    zip(ivs, datas, auxs, keys_per_batch, strict=True),
+                for batch, batch_keys in tqdm(
+                    zip(dataloader, keys_per_batch, strict=True),
                 ):
                     t1 = datetime.now()
-                    outputs = make_predictions(mlp, iv, data, aux)
+                    outputs = make_predictions(mlp, batch)
                     t2 = datetime.now()
                     inference_time += t2 - t1
                     # Split each batch into individual arrays:

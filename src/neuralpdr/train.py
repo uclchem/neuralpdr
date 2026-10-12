@@ -19,7 +19,6 @@ from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from jaxtyping import Array, Float, Scalar
 
-from neuralpdr._typing import BatchAux, BatchData, BatchIV
 from neuralpdr.callbacks import (
     EarlyTerminate,
     # NeptuneLogger,
@@ -37,10 +36,11 @@ from neuralpdr.config import (
 )
 from neuralpdr.data import (
     PDRLoader,
+    SeriesBatch,
+    SeriesBatcher,
     SeriesLoader,
     filter_models_by_series_length,
     log_semi_sorter,
-    pad_and_stack,
     shuffle_and_split,
     text_from_h5,
 )
@@ -85,7 +85,7 @@ sharding = NamedSharding(MESH, SPEC)  # naming axes of the sharded partition
 def grad_loss(
     model: SurrogateModel,
     objective: Objective,
-    batch: tuple[BatchIV, BatchData, BatchAux],
+    batch: SeriesBatch,
     loss_weights: Float[Array, " W"],
 ) -> tuple[Scalar, dict[str, Array]]:
     """Compute the training loss of the objective, and its metrics.
@@ -93,7 +93,7 @@ def grad_loss(
     Args:
         model (SurrogateModel): The NN part of the neuralODE
         objective (Objective): The objective that defines the loss and metrics
-        batch (tuple[BatchIV, BatchData, BatchAux]): One batch
+        batch (SeriesBatch): One batch
         loss_weights (Float[Array, " W"]): The weights of the loss terms
 
     Returns:
@@ -108,7 +108,7 @@ def grad_loss(
         check_rep=False,
     )
     def loss_sharded(
-        batch: tuple[BatchIV, BatchData, BatchAux],
+        batch: SeriesBatch,
     ) -> tuple[Scalar, dict[str, Array]]:
         loss, metrics = objective(model, batch, loss_weights)
         return jax.lax.pmean(loss, axis_name="batch"), {
@@ -123,14 +123,14 @@ def grad_loss(
 def grad_loss_only(
     model: SurrogateModel,
     objective: Objective,
-    batch: tuple[BatchIV, BatchData, BatchAux],
+    batch: SeriesBatch,
 ) -> Scalar:
     """Compute the validation loss of the objective.
 
     Args:
         model (SurrogateModel): The NN part of the neuralODE
         objective (Objective): The objective that defines the validation loss
-        batch (tuple[BatchIV, BatchData, BatchAux]): One batch
+        batch (SeriesBatch): One batch
 
     Returns:
         Scalar: The validation loss for this batch
@@ -152,7 +152,7 @@ def make_step(
     objective: Objective,
     optim: optax.GradientTransformation,
     opt_state: optax.OptState,
-    batch: tuple[BatchIV, BatchData, BatchAux],
+    batch: SeriesBatch,
     loss_weights: Float[Array, " W"],
 ) -> tuple[Scalar, SurrogateModel, optax.OptState, dict[str, Array]]:
     """Make a step in the optimization process.
@@ -162,7 +162,7 @@ def make_step(
         objective (Objective): The objective that defines the loss
         optim (optax.GradientTransformation): The optimizer
         opt_state (optax.OptState): The state of the optimizer
-        batch (tuple[BatchIV, BatchData, BatchAux]): One batch
+        batch (SeriesBatch): One batch
         loss_weights (Float[Array, " W"]): The weights of the loss terms
 
     Returns:
@@ -222,7 +222,7 @@ def do_epoch(
         if not jnp.isnan(train_value):
             train_losses = train_losses.at[step].set(train_value)
         if "batch_end" in callbacks:
-            _, data, _ = batch
+            data = batch.data
             for cb in callbacks["batch_end"]:
                 cb(
                     epoch=epoch,
@@ -410,7 +410,7 @@ def main(conf: Latent | FNO):
         batch_size=conf.batch_size,
         stage="train",
         **_normalization_kwargs(normalization_parameters),
-        collate_fn=pad_and_stack,
+        batcher=SeriesBatcher(),
         batch_permutation_function=log_semi_sorter,
         use_cache=True,
         batch_subsampling=conf.training_batch_subsampling,
@@ -436,7 +436,7 @@ def main(conf: Latent | FNO):
         batch_size=conf.batch_size,
         stage="val",
         **_normalization_kwargs(normalization_parameters),
-        collate_fn=pad_and_stack,
+        batcher=SeriesBatcher(),
         batch_permutation_function=log_semi_sorter,
         use_cache=True,
     )

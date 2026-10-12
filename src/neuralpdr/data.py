@@ -5,16 +5,25 @@ import pickle
 from collections.abc import Callable, Iterator
 from functools import reduce
 from pathlib import Path
-from typing import Protocol, TypeAlias, TypeVar
+from typing import TypeAlias, TypeVar
 
+import equinox as eqx
 import h5py
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from jaxtyping import Array, Float
+from jaxtyping import Array
 from tqdm import tqdm
 
-from neuralpdr._typing import BatchAux, BatchData, BatchIV, SampleSeries, SeriesGroup
+from neuralpdr._typing import (
+    BatchAux,
+    BatchData,
+    BatchIV,
+    BatchMask,
+    SampleSeries,
+    SeriesGroup,
+)
 
 
 def text_from_h5(dataset_path: str | Path, key: str) -> list[str]:
@@ -27,17 +36,68 @@ def df_from_h5(dataset_path: str | Path, key: str, columns=None) -> pd.DataFrame
         return pd.DataFrame(h5f[key][:], columns=columns)
 
 
-# The batched data is a list of batches, or a single array with a leading
-# batch-index dimension N when all batches have the same shape.
-Batched: TypeAlias = list[Float[Array, "B T _"]] | Float[Array, "N B T _"]
+class SeriesBatch(eqx.Module):
+    """A batch of whole series, padded to a common length T.
+
+    Attributes:
+        iv (BatchIV): The independent variable
+        data (BatchData): The data features
+        aux (BatchAux): The auxiliary features
+        mask (BatchMask): True for the steps that are used in the loss
+    """
+
+    iv: BatchIV
+    data: BatchData
+    aux: BatchAux
+    mask: BatchMask
 
 
-class CollateFunction(Protocol):
+# The batches of a loader: a list of batches, or a single batch whose leaves have a
+# leading batch-index dimension N when all batches have the same shape.
+Batched: TypeAlias = list[SeriesBatch] | SeriesBatch
+
+
+class SeriesBatcher:
+    """Builds a ``SeriesBatch`` from the series of a group of samples.
+
+    The series are edge-padded to a common length by ``pad_and_stack``. With a
+    ``max_length``, a random window of at most that many steps is taken from each
+    series first. The mask marks the steps where the padded independent variable
+    changes, which excludes the edge padding (and the first step if the
+    independent variable starts at exactly 1.0).
+    """
+
+    def __init__(self, max_length: int | None = None) -> None:
+        """
+        Args:
+            max_length (int, optional): The maximal number of steps per series; all
+                steps when None. Defaults to None.
+        """
+        self.max_length = max_length
+
     def __call__(
         self,
-        *batches: list[SampleSeries],
-        random_sample_number: int | None = None,
-    ) -> list[Array]: ...
+        iv: list[SampleSeries],
+        data: list[SampleSeries],
+        aux: list[SampleSeries],
+    ) -> SeriesBatch:
+        """Pad and stack the series of a group of samples into a batch.
+
+        Args:
+            iv (list[SampleSeries]): The independent variable of each sample
+            data (list[SampleSeries]): The data features of each sample
+            aux (list[SampleSeries]): The auxiliary features of each sample
+
+        Returns:
+            SeriesBatch: The batch
+        """
+        batch_data, batch_aux, batch_iv = pad_and_stack(
+            data, aux, iv, random_sample_number=self.max_length
+        )
+        mask = jnp.diff(batch_iv, axis=1, prepend=1.0) != 0.0
+        return SeriesBatch(
+            iv=batch_iv[:, :, 0], data=batch_data, aux=batch_aux, mask=mask[:, :, 0]
+        )
 
 
 # Either array type, returned as the same type.
@@ -64,16 +124,16 @@ class SeriesLoader(abc.ABC):
         """Return the number of batches."""
 
     @abc.abstractmethod
-    def __getitem__(self, idx: int) -> tuple[BatchIV, BatchData, BatchAux]:
+    def __getitem__(self, idx: int) -> SeriesBatch:
         """Return the batch at index ``idx``."""
 
     @abc.abstractmethod
-    def __iter__(self) -> Iterator[tuple[BatchIV, BatchData, BatchAux]]:
+    def __iter__(self) -> Iterator[SeriesBatch]:
         """Iterate over all batches."""
 
     @abc.abstractmethod
-    def get_all_batches(self) -> tuple[Batched, Batched, Batched]:
-        """Return all batches of the independent variable, data and auxiliary data."""
+    def get_all_batches(self) -> Batched:
+        """Return all batches."""
 
     @abc.abstractmethod
     def get_batch_keys(self) -> list[list[str]]:
@@ -108,7 +168,7 @@ class PDRLoader(SeriesLoader):
         features_normalization_kwargs: dict | None = None,
         auxiliary_features_normalization_kwargs: dict | None = None,
         batch_permutation_function: Callable | None = None,
-        collate_fn: CollateFunction | None = None,
+        batcher: SeriesBatcher | None = None,
         load_first_n_keys: int | None = None,
         drop_last: bool = True,
         use_cache: bool = False,
@@ -128,7 +188,7 @@ class PDRLoader(SeriesLoader):
             features_normalization_kwargs (dict, optional): kwargs for normalizing the features. Defaults to {}.
             auxiliary_features_normalization_kwargs (dict, optional): kwargs for normalizing the auxiliary features. Defaults to {}.
             batch_permutation_function (callable, optional): Function to permute the samples into batches. Defaults to None.
-            collate_fn (callable, optional): Function to collate data into batches. Defaults to pad_and_stack.
+            batcher (SeriesBatcher, optional): Builds the batches from the series of the samples. Defaults to SeriesBatcher().
             load_first_n_keys (int, optional): Number of keys to load. Defaults to None.
             drop_last (bool, optional): Drop the last batch if it is smaller than the batch size. Defaults to True.
             use_cache (bool, optional): Use a cache to store the loaded data. Defaults to False.
@@ -151,14 +211,12 @@ class PDRLoader(SeriesLoader):
             auxiliary_features_normalization_kwargs = {}
         self.key_template = "{model}/pdr"
         self.batch_permutation_function = batch_permutation_function
-        self.collate_fn = collate_fn if collate_fn is not None else pad_and_stack
+        self.batcher = batcher if batcher is not None else SeriesBatcher()
         self.load_first_n_keys = load_first_n_keys
         self.drop_last = drop_last
         self.use_cache = use_cache
         self.batch_subsampling = batch_subsampling
         self.model_indices_per_batch: list[list[str]] = []
-
-        self.dynamic_end_index: int | None = None
 
         if not self.model_indices:
             self.model_indices = text_from_h5(dataset_path, "model_ids")
@@ -185,10 +243,8 @@ class PDRLoader(SeriesLoader):
         self.independent_data_by_model: dict[str, SampleSeries] = {}
         self.auxiliary_data_by_model: dict[str, SampleSeries] = {}
 
-        # Create lists to store the batched data, or an array of jax data with shape (n_batches, batch_size, av_points, n_features)
-        self.batched_feature_data: Batched = []
-        self.batched_independent_data: Batched = []
-        self.batched_auxiliary_data: Batched = []
+        # The batches: a list, or one batch with a leading batch-index dimension
+        self.batches: Batched = []
         # Store all the names of each of the samples in a list
         self.batched_indices: list[list] = []
 
@@ -418,15 +474,6 @@ class PDRLoader(SeriesLoader):
         if model_indices is None:
             model_indices = self.model_indices
         logging.debug(f"Creating new batches for {len(model_indices)} series")
-        # reset the batched data and av
-        del (
-            self.batched_independent_data,
-            self.batched_feature_data,
-            self.batched_auxiliary_data,
-        )
-        self.batched_feature_data = []
-        self.batched_auxiliary_data = []
-        self.batched_independent_data = []
         # Create the batches, including a final batch that is smaller than the batch size
         fenceposts = list(range(0, len(model_indices), self.batch_size))
         if not self.drop_last:
@@ -445,41 +492,28 @@ class PDRLoader(SeriesLoader):
         self.model_indices_per_batch = batch_indices_lil
 
         # Iterate over the grouped model indices and create the batches
-        for batch_indices in batch_indices_lil:
-            # FIXME: is this function call correct?
-            batch_data, batch_aux, batch_iv = self.collate_fn(
+        batches = [
+            self.batcher(
+                [self.independent_data_by_model[idx] for idx in batch_indices],
                 [self.feature_data_by_model[idx] for idx in batch_indices],
                 [self.auxiliary_data_by_model[idx] for idx in batch_indices],
-                [self.independent_data_by_model[idx] for idx in batch_indices],
-                random_sample_number=self.dynamic_end_index,
             )
-            # print("inside the batching function the shape is: ", batch_data.shape)
-            self.batched_feature_data.append(batch_data)
-            self.batched_auxiliary_data.append(batch_aux)
-            self.batched_independent_data.append(batch_iv)
+            for batch_indices in batch_indices_lil
+        ]
 
-        # If all batches have the same shape, cast them into one big array:
-        if all(
-            [
-                batch_iv.shape == self.batched_independent_data[0].shape
-                for batch_iv in self.batched_independent_data
-            ]
-        ):
-            self.batched_feature_data = jnp.array(self.batched_feature_data)
-            self.batched_auxiliary_data = jnp.array(self.batched_auxiliary_data)
-            self.batched_independent_data = jnp.array(self.batched_independent_data)
+        # If all batches have the same shape, stack them into one batch of arrays:
+        if batches and all(batch.iv.shape == batches[0].iv.shape for batch in batches):
+            self.batches = jax.tree.map(lambda *leaves: jnp.stack(leaves), *batches)
+        else:
+            self.batches = batches
 
-    def get_all_batches(self) -> tuple[Batched, Batched, Batched]:
-        """Get all the batches of data and av
+    def get_all_batches(self) -> Batched:
+        """Get all the batches
 
         Returns:
-            tuple[Batched, Batched, Batched]: Tuple with the batched independent variable, data and auxiliary data
+            Batched: A list of batches, or one batch with a leading batch-index dimension
         """
-        return (
-            self.batched_independent_data,
-            self.batched_feature_data,
-            self.batched_auxiliary_data,
-        )
+        return self.batches
 
     def get_batch_keys(self) -> list[list[str]]:
         """Get the keys of the batches
@@ -497,13 +531,13 @@ class PDRLoader(SeriesLoader):
         """
         print("trying to set the next fraction index with frac", frac)
         if frac == 1.0 or frac is None:
-            self.dynamic_end_index = None
+            self.batcher.max_length = None
         elif isinstance(frac, float):
             # Set the end index to the fraction of the timeseries length
-            self.dynamic_end_index = np.ceil(frac * self.timeseries_length).astype(int)
+            self.batcher.max_length = np.ceil(frac * self.timeseries_length).astype(int)
         elif isinstance(frac, int):
             # Set the end index to the fraction of the timeseries length
-            self.dynamic_end_index = frac
+            self.batcher.max_length = frac
         else:
             raise ValueError("Fraction must be either a float or an integer")
         # Load the data again
@@ -542,32 +576,25 @@ class PDRLoader(SeriesLoader):
         Returns:
             int: Number of batches
         """
-        return len(self.batched_feature_data)
+        if isinstance(self.batches, list):
+            return len(self.batches)
+        return len(self.batches.iv)
 
-    def __getitem__(self, idx: int) -> tuple[BatchIV, BatchData, BatchAux]:
-        """Get the batched data and av at a given batch index, returning them as jax arrays or list of arrays
+    def __getitem__(self, idx: int) -> SeriesBatch:
+        """Get the batch at a given batch index
 
         Args:
             idx (int): Index of the batch
 
         Returns:
-            tuple[BatchIV, BatchData, BatchAux]: Tuple with the batched independent variable, data and auxiliary data
+            SeriesBatch: The batch
         """
-        return (
-            self.batched_independent_data[idx],
-            self.batched_feature_data[idx],
-            self.batched_auxiliary_data[idx],
-        )
+        if isinstance(self.batches, list):
+            return self.batches[idx]
+        return jax.tree.map(lambda leaf: leaf[idx], self.batches)
 
-    def __iter__(self) -> Iterator[tuple[BatchIV, BatchData, BatchAux]]:
-        return iter(
-            zip(
-                self.batched_independent_data,
-                self.batched_feature_data,
-                self.batched_auxiliary_data,
-                strict=True,
-            )
-        )
+    def __iter__(self) -> Iterator[SeriesBatch]:
+        return (self[idx] for idx in range(len(self)))
 
 
 def shuffle_and_split(

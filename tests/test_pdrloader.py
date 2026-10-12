@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 from neuralpdr.config import Norms, read_as, write_as
-from neuralpdr.data import PDRLoader, pad_and_stack
+from neuralpdr.data import PDRLoader
 
 # Dataset locations - prefer test datasets
 TEST_DIR = Path(__file__).parent.parent / "data" / "test"
@@ -111,7 +111,6 @@ class TestV1PDRLoader:
             "model_indices": None,
             "batch_size": 8,
             "load_first_n_keys": n_models,
-            "collate_fn": pad_and_stack,
         }
 
     def test_v1_initialization(self, v1_config):
@@ -145,12 +144,12 @@ class TestV1PDRLoader:
         assert len(loader) == expected_batches
 
         # Check batch shapes
-        iv_batch, data_batch, aux_batch = loader[0]
-        assert iv_batch.shape[0] == batch_size
-        assert data_batch.shape[0] == batch_size
-        assert aux_batch.shape[0] == batch_size
-        assert data_batch.shape[2] == 19  # species
-        assert aux_batch.shape[2] == 5  # aux features
+        batch = loader[0]
+        assert batch.iv.shape[0] == batch_size
+        assert batch.data.shape[0] == batch_size
+        assert batch.aux.shape[0] == batch_size
+        assert batch.data.shape[2] == 19  # species
+        assert batch.aux.shape[2] == 5  # aux features
 
     def test_v1_normalization(self, v1_config):
         """Test normalization parameters are computed."""
@@ -192,11 +191,11 @@ class TestV1PDRLoader:
         loader = PDRLoader(**v1_config)
 
         batch_count = 0
-        for iv_batch, data_batch, aux_batch in loader:
+        for batch in loader:
             batch_count += 1
-            assert iv_batch.shape[0] <= v1_config["batch_size"]
-            assert data_batch.shape[0] <= v1_config["batch_size"]
-            assert aux_batch.shape[0] <= v1_config["batch_size"]
+            assert batch.iv.shape[0] <= v1_config["batch_size"]
+            assert batch.data.shape[0] <= v1_config["batch_size"]
+            assert batch.aux.shape[0] <= v1_config["batch_size"]
 
         assert batch_count == len(loader)
 
@@ -257,7 +256,6 @@ class TestV2PDRLoader:
             "model_indices": None,
             "batch_size": 8,
             "load_first_n_keys": n_models,
-            "collate_fn": pad_and_stack,
         }
 
     def test_v2_initialization(self, v2_config):
@@ -288,10 +286,10 @@ class TestV2PDRLoader:
         expected_batches = n_models // batch_size
         assert len(loader) == expected_batches
 
-        iv_batch, data_batch, aux_batch = loader[0]
-        assert iv_batch.shape[0] == batch_size
-        assert data_batch.shape[2] == 29  # species
-        assert aux_batch.shape[2] == 5  # aux features
+        batch = loader[0]
+        assert batch.iv.shape[0] == batch_size
+        assert batch.data.shape[2] == 29  # species
+        assert batch.aux.shape[2] == 5  # aux features
 
     def test_v2_normalization(self, v2_config):
         """Test normalization parameters."""
@@ -370,7 +368,6 @@ class TestV3PDRLoader:
             "model_indices": None,
             "batch_size": 8,
             "load_first_n_keys": n_models,
-            "collate_fn": pad_and_stack,
         }
 
     def test_v3_initialization(self, v3_config):
@@ -401,10 +398,10 @@ class TestV3PDRLoader:
         expected_batches = n_models // batch_size
         assert len(loader) == expected_batches
 
-        iv_batch, data_batch, aux_batch = loader[0]
-        assert iv_batch.shape[0] == batch_size
-        assert data_batch.shape[2] == 31  # species
-        assert aux_batch.shape[2] == 5  # aux features
+        batch = loader[0]
+        assert batch.iv.shape[0] == batch_size
+        assert batch.data.shape[2] == 31  # species
+        assert batch.aux.shape[2] == 5  # aux features
 
     def test_v3_normalization(self, v3_config):
         """Test normalization parameters."""
@@ -442,7 +439,6 @@ class TestPDRLoaderFeatures:
             "model_indices": None,
             "batch_size": 8,
             "load_first_n_keys": min(get_model_count(V1_PATH), 50),
-            "collate_fn": pad_and_stack,
         }
 
         loader = PDRLoader(**config)
@@ -472,13 +468,12 @@ class TestPDRLoaderFeatures:
             "model_indices": None,
             "batch_size": 8,
             "load_first_n_keys": min(get_model_count(V1_PATH), 20),
-            "collate_fn": pad_and_stack,
         }
 
         loader = PDRLoader(**config)
 
-        iv_batch, data_batch, aux_batch = loader[0]
+        batch = loader[0]
 
         # Test inverse normalization
-        denorm_data = loader.inv_normalize(data_batch[0], "data")
-        assert denorm_data.shape == data_batch[0].shape
+        denorm_data = loader.inv_normalize(batch.data[0], "data")
+        assert denorm_data.shape == batch.data[0].shape
