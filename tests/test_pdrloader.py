@@ -10,6 +10,8 @@ Purpose:
     - Test batch creation
     - Test normalization
     - Test iteration and shuffling
+    - Test batching of series (SeriesBatcher)
+    - Test that train, validation and test splits share no model
 
 Prerequisites:
     Test datasets should exist (validated by test_datasets.py):
@@ -27,7 +29,13 @@ import numpy as np
 import pytest
 
 from neuralpdr.config import Norms, read_as, write_as
-from neuralpdr.data import PDRLoader
+from neuralpdr.data import (
+    PDRLoader,
+    SeriesBatch,
+    SeriesBatcher,
+    shuffle_and_split,
+    text_from_h5,
+)
 
 # Dataset locations - prefer test datasets
 TEST_DIR = Path(__file__).parent.parent / "data" / "test"
@@ -477,3 +485,96 @@ class TestPDRLoaderFeatures:
         # Test inverse normalization
         denorm_data = loader.inv_normalize(batch.data[0], "data")
         assert denorm_data.shape == batch.data[0].shape
+
+
+class TestSeriesBatcher:
+    """Tests for building SeriesBatch from series of different lengths."""
+
+    @staticmethod
+    def series(lengths: list[int], n_features: int) -> list[np.ndarray]:
+        return [
+            np.arange(length * n_features, dtype=np.float32).reshape(length, n_features)
+            for length in lengths
+        ]
+
+    def test_padding_and_mask(self):
+        """Series are edge-padded to a common length; the mask excludes the padding."""
+        lengths = [5, 3, 4]
+        iv = [
+            np.linspace(0.1, 1.0, length, dtype=np.float32)[:, None]
+            for length in lengths
+        ]
+        batch = SeriesBatcher()(iv, self.series(lengths, 4), self.series(lengths, 2))
+
+        assert isinstance(batch, SeriesBatch)
+        assert batch.iv.shape == (3, 5)
+        assert batch.data.shape == (3, 5, 4)
+        assert batch.aux.shape == (3, 5, 2)
+        assert batch.mask.shape == (3, 5)
+        assert batch.mask.dtype == bool
+        expected_mask = np.arange(5)[None, :] < np.array(lengths)[:, None]
+        np.testing.assert_array_equal(batch.mask, expected_mask)
+        # Edge padding repeats the last step of each series.
+        np.testing.assert_array_equal(batch.iv[1, 3:], [1.0, 1.0])
+        np.testing.assert_array_equal(
+            batch.data[1, 3:], np.repeat(batch.data[1, 2:3], 2, 0)
+        )
+
+    def test_max_length(self):
+        """With max_length, each series is cut to a window of at most that many steps."""
+        np.random.seed(0)
+        lengths = [40, 50]
+        iv = [
+            np.linspace(0.1, 1.0, length, dtype=np.float32)[:, None]
+            for length in lengths
+        ]
+        batch = SeriesBatcher(max_length=10)(
+            iv, self.series(lengths, 3), self.series(lengths, 1)
+        )
+
+        assert batch.iv.shape == (2, 10)
+        assert batch.mask.all()
+        # The window is a contiguous slice of the original series.
+        for i in range(2):
+            start = int(np.argmin(np.abs(iv[i][:, 0] - batch.iv[i, 0])))
+            np.testing.assert_array_equal(batch.iv[i], iv[i][start : start + 10, 0])
+
+
+class TestSplits:
+    """Train, validation and test data must come from different models."""
+
+    def test_splits_share_no_model(self):
+        """shuffle_and_split and the loaders built from it keep the splits disjoint."""
+        if not V1_PATH.exists():
+            pytest.skip("v1 dataset not found")
+
+        model_ids = text_from_h5(V1_PATH, "model_ids")
+        splits = shuffle_and_split(
+            model_indices=list(model_ids),
+            train_split=0.7,
+            val_split=0.15,
+            test_split=0.15,
+        )
+        assert sorted(sum(splits, [])) == sorted(model_ids)
+
+        loader_ids = [
+            set(
+                PDRLoader(
+                    dataset_path=V1_PATH,
+                    independent_variable="visual_extinction",
+                    data_features=["H2", "CO"],
+                    auxiliary_features=["tgas", "density"],
+                    index_range=(0, 50),
+                    model_indices=split,
+                    batch_size=4,
+                    drop_last=False,
+                ).model_indices
+            )
+            for split in splits
+        ]
+        for ids, split in zip(loader_ids, splits, strict=True):
+            assert ids == set(split)
+        train_ids, val_ids, test_ids = loader_ids
+        assert not train_ids & val_ids
+        assert not train_ids & test_ids
+        assert not val_ids & test_ids

@@ -8,7 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from neuralpdr.config import LearningScheme, read_conf, write_conf
+from neuralpdr.config import (
+    DataMetadata,
+    LearningScheme,
+    read_as,
+    read_conf,
+    write_conf,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -147,6 +153,13 @@ def test_training_pipeline_integration(version, tmp_path: Path):
         assert (out_dir / ef).exists(), (
             f"Missing expected output file: {ef} in {out_dir}"
         )
+
+    # Train, validation and test data come from different models.
+    data_metadata = read_as(out_dir / "data_metadata.json", DataMetadata)
+    train_ids = set(data_metadata.train_indices)
+    val_ids = set(data_metadata.val_indices)
+    test_ids = set(data_metadata.test_indices)
+    assert not (train_ids & val_ids or train_ids & test_ids or val_ids & test_ids)
 
     # Training must produce finite losses; a NaN validation loss means the run
     # silently diverged (e.g. a broken normalisation).
