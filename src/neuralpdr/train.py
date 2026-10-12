@@ -8,7 +8,6 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import TypeAlias
 
 import equinox as eqx
 import jax
@@ -18,7 +17,7 @@ import optax
 from jax.experimental import mesh_utils
 from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
-from jaxtyping import Array, Float, Integer, Scalar
+from jaxtyping import Array, Float, Scalar
 
 from neuralpdr._typing import BatchAux, BatchData, BatchIV
 from neuralpdr.callbacks import (
@@ -86,20 +85,16 @@ sharding = NamedSharding(MESH, SPEC)  # naming axes of the sharded partition
 def grad_loss(
     model: SurrogateModel,
     objective: Objective,
-    batch_iv: BatchIV,
-    batch_data: BatchData,
-    batch_aux: BatchAux,
-    weight_per_loss: Float[Array, " W"],
+    batch: tuple[BatchIV, BatchData, BatchAux],
+    loss_weights: Float[Array, " W"],
 ) -> tuple[Scalar, dict[str, Array]]:
     """Compute the training loss of the objective, and its metrics.
 
     Args:
         model (SurrogateModel): The NN part of the neuralODE
         objective (Objective): The objective that defines the loss and metrics
-        batch_iv (BatchIV): One batch of independent variable
-        batch_data (BatchData): One batch of feature data
-        batch_aux (BatchAux): One batch of auxiliary data
-        weight_per_loss (Float[Array, " W"]): The weights of the loss terms
+        batch (tuple[BatchIV, BatchData, BatchAux]): One batch
+        loss_weights (Float[Array, " W"]): The weights of the loss terms
 
     Returns:
         tuple[Scalar, dict[str, Array]]: The loss and the metrics, reduced over the devices
@@ -113,53 +108,42 @@ def grad_loss(
         check_rep=False,
     )
     def loss_sharded(
-        batch_iv: BatchIV,
-        batch_data: BatchData,
-        batch_aux: BatchAux,
+        batch: tuple[BatchIV, BatchData, BatchAux],
     ) -> tuple[Scalar, dict[str, Array]]:
-        loss, metrics = objective(
-            model, (batch_iv, batch_data, batch_aux), weight_per_loss
-        )
+        loss, metrics = objective(model, batch, loss_weights)
         return jax.lax.pmean(loss, axis_name="batch"), {
             key: objective.metric_reductions[key](value, "batch")
             for key, value in metrics.items()
         }
 
-    return loss_sharded(batch_iv, batch_data, batch_aux)
+    return loss_sharded(batch)
 
 
 @eqx.filter_jit
 def grad_loss_only(
     model: SurrogateModel,
     objective: Objective,
-    batch_iv: BatchIV,
-    batch_data: BatchData,
-    batch_aux: BatchAux,
+    batch: tuple[BatchIV, BatchData, BatchAux],
 ) -> Scalar:
     """Compute the validation loss of the objective.
 
     Args:
         model (SurrogateModel): The NN part of the neuralODE
         objective (Objective): The objective that defines the validation loss
-        batch_iv (BatchIV): One batch of independent variable
-        batch_data (BatchData): One batch of feature data
-        batch_aux (BatchAux): One batch of auxiliary data
+        batch (tuple[BatchIV, BatchData, BatchAux]): One batch
 
     Returns:
         Scalar: The validation loss for this batch
     """
     return shard_map(
-        lambda *batch: jax.lax.pmean(
+        lambda batch: jax.lax.pmean(
             objective.validation_loss(model, batch), axis_name="batch"
         ),
         mesh=MESH,
         in_specs=SPEC,
         out_specs=PartitionSpec(),
         check_rep=False,
-    )(batch_iv, batch_data, batch_aux)
-
-
-ScalarInt: TypeAlias = Integer[Array, ""]
+    )(batch)
 
 
 @eqx.filter_jit(donate="all")
@@ -168,22 +152,9 @@ def make_step(
     objective: Objective,
     optim: optax.GradientTransformation,
     opt_state: optax.OptState,
-    batch_iv: BatchIV,
-    batch_data: BatchData,
-    batch_aux: BatchAux,
+    batch: tuple[BatchIV, BatchData, BatchAux],
     loss_weights: Float[Array, " W"],
-) -> tuple[
-    Scalar,
-    SurrogateModel,
-    optax.OptState,
-    ScalarInt,
-    ScalarInt,
-    ScalarInt,
-    ScalarInt,
-    Scalar,
-    Scalar,
-    Scalar,
-]:
+) -> tuple[Scalar, SurrogateModel, optax.OptState, dict[str, Array]]:
     """Make a step in the optimization process.
 
     Args:
@@ -191,29 +162,16 @@ def make_step(
         objective (Objective): The objective that defines the loss
         optim (optax.GradientTransformation): The optimizer
         opt_state (optax.OptState): The state of the optimizer
-        batch_iv (BatchIV): One batch of independent variable
-        batch_data (BatchData): One batch of timeseries data
+        batch (tuple[BatchIV, BatchData, BatchAux]): One batch
+        loss_weights (Float[Array, " W"]): The weights of the loss terms
 
     Returns:
-        tuple[Scalar, SurrogateModel, optax.OptState, ...]: The loss, the updated model and the updated optimizer state
+        tuple[Scalar, SurrogateModel, optax.OptState, dict[str, Array]]: The loss, the updated model, the updated optimizer state and the metrics of the objective
     """
-    (value, metrics), grads = grad_loss(
-        model, objective, batch_iv, batch_data, batch_aux, loss_weights
-    )
+    (value, metrics), grads = grad_loss(model, objective, batch, loss_weights)
     updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_array))
     model = eqx.apply_updates(model, updates)
-    return (
-        value,
-        model,
-        opt_state,
-        metrics["nan_count"],
-        metrics["solver_steps_min"],
-        metrics["solver_steps_med"],
-        metrics["solver_steps_max"],
-        metrics["rollout_loss"],
-        metrics["latent_loss"],
-        metrics["auto_loss"],
-    )
+    return value, model, opt_state, metrics
 
 
 # @eqx.filter_jit # This needs to be converted to a scan if we want to jit it effectively.
@@ -233,21 +191,20 @@ def do_epoch(
     Args:
         epoch (int): The current epoch
         mlp (SurrogateModel):  The neural network
+        objective (Objective): The objective that defines the losses and metrics
         optim (optax.GradientTransformation): The optimizer
         opt_state (optax.OptState): The state of the optimizer
-        av_train_batches (list[jnp.array]): Visual extinction batches for training
-        data_train_batches (list[jnp.array]): Data batches for training
-        av_val_batches (list[jnp.array]): Visual extinction batches for validation
-        data_val_batches (list[jnp.array]): Data batches for validation
-        on_batch_end_callback (Callable, optional): Callback function to execute at the end of each batch. Defaults to None.
+        train_loader (SeriesLoader): The data loader for training data
+        val_loader (SeriesLoader): The data loader for validation data
+        callbacks (dict[str, list[Callable]]): Callback functions to execute at the start ("batch_start") and end ("batch_end") of each batch
+        sharding (jax.sharding.Sharding, optional): How to place the batches on the devices. Defaults to None.
 
     Returns:
         tuple[Scalar, Scalar, SurrogateModel, optax.OptState]: The training loss, validation loss, updated neural network and optimizer state
     """
     # Bits to get sharding to work:
     train_losses = jnp.zeros((len(train_loader),))
-    # print("The weights per loss term are:", weights_per_loss_term)
-    for step, (iv, data, aux) in enumerate(train_loader):
+    for step, batch in enumerate(train_loader):
         # Callbacks at the start of the batch
         if "batch_start" in callbacks:
             for cb in callbacks["batch_start"]:
@@ -256,24 +213,16 @@ def do_epoch(
         start = datetime.now()
         # Initialize the sharding if needed:
         if sharding:
-            iv, data, aux = jax.device_put((iv, data, aux), sharding)
+            batch = jax.device_put(batch, sharding)
         loss_weights = jnp.asarray(objective.weights(epoch))
-        (
-            train_value,
-            mlp,
-            opt_state,
-            nan_count,
-            solver_steps_min,
-            solver_steps_med,
-            solver_steps_max,
-            rollout_loss,
-            latent_loss,
-            auto_loss,
-        ) = make_step(mlp, objective, optim, opt_state, iv, data, aux, loss_weights)
+        train_value, mlp, opt_state, metrics = make_step(
+            mlp, objective, optim, opt_state, batch, loss_weights
+        )
         # Save the loss for this batch
         if not jnp.isnan(train_value):
             train_losses = train_losses.at[step].set(train_value)
         if "batch_end" in callbacks:
+            _, data, _ = batch
             for cb in callbacks["batch_end"]:
                 cb(
                     epoch=epoch,
@@ -281,7 +230,6 @@ def do_epoch(
                     mlp=mlp,
                     train_loss=train_value,
                     neptune_metrics={
-                        "nan_count": nan_count,
                         "step": step,
                         "epoch": epoch,
                         "step_train_loss": train_value,
@@ -290,24 +238,17 @@ def do_epoch(
                             datetime.now() - start
                         ).total_seconds()
                         / data.shape[0],
-                        "solver_steps_min": solver_steps_min,
-                        "solver_steps_med": solver_steps_med,
-                        "solver_steps_max": solver_steps_max,
                         "batch_size": data.shape[0],
                         "batch_series_length": data.shape[1],
-                        "rollout_loss": rollout_loss,
-                        "latent_loss": latent_loss,
-                        "auto_loss": auto_loss,
+                        **metrics,
                     },
                 )
 
     val_losses = jnp.zeros((len(val_loader),))
-    for idx, (iv, data, aux) in enumerate(val_loader):
+    for idx, batch in enumerate(val_loader):
         if sharding:
-            iv, data, aux = jax.device_put((iv, data, aux), sharding)
-        val_losses = val_losses.at[idx].set(
-            grad_loss_only(mlp, objective, iv, data, aux)
-        )
+            batch = jax.device_put(batch, sharding)
+        val_losses = val_losses.at[idx].set(grad_loss_only(mlp, objective, batch))
     return jnp.mean(train_losses), jnp.mean(val_losses), mlp, opt_state
 
 
