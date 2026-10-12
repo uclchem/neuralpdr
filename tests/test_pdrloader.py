@@ -590,3 +590,33 @@ class TestSplits:
         assert not train_ids & val_ids
         assert not train_ids & test_ids
         assert not val_ids & test_ids
+
+    @staticmethod
+    def small_loader(model_indices):
+        return PDRLoader(
+            dataset_path=V1_PATH,
+            independent_variable="visual_extinction",
+            data_features=["H2", "CO"],
+            auxiliary_features=["tgas", "density"],
+            index_range=(0, 50),
+            model_indices=model_indices,
+            batch_size=4,
+            drop_last=False,
+        )
+
+    def test_empty_split_is_refused(self):
+        """An empty split raises instead of silently loading every model."""
+        if not V1_PATH.exists():
+            pytest.skip("v1 dataset not found")
+        with pytest.raises(ValueError, match="model_indices is empty"):
+            self.small_loader([])
+
+    @pytest.mark.parametrize("model_indices", [None, "all"])
+    def test_none_or_all_loads_every_model(self, model_indices):
+        """Only None and "all" load every model in the dataset."""
+        if not V1_PATH.exists():
+            pytest.skip("v1 dataset not found")
+        loader = self.small_loader(model_indices)
+        assert sorted(loader.model_indices) == sorted(
+            text_from_h5(V1_PATH, "model_ids")
+        )

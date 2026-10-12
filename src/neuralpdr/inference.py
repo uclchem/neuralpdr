@@ -168,7 +168,8 @@ def main(opts: argparse.Namespace):
 
     keys = train_keys + val_keys + test_keys
 
-    keys_splits = np.array_split(keys, 25)
+    # At most 25 parts and never an empty one: a loader refuses an empty list of models.
+    keys_splits = np.array_split(keys, min(25, len(keys)))
     savepath = model_weights_path.parent / f"{model_weights_path.stem}_predictions3.h5"
     inference_time = timedelta(0.0)
     with h5py.File(dataset_path, "r") as fh_data:

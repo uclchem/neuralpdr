@@ -5,7 +5,7 @@ import pickle
 from collections.abc import Callable, Iterator
 from functools import reduce
 from pathlib import Path
-from typing import TypeAlias, TypeVar
+from typing import Literal, TypeAlias, TypeVar
 
 import equinox as eqx
 import h5py
@@ -160,7 +160,7 @@ class PDRLoader(SeriesLoader):
         data_features: list[str],
         auxiliary_features: list[str],
         index_range: tuple[int, int | None],
-        model_indices: list[str],
+        model_indices: list[str] | Literal["all"] | None,
         model_df: pd.DataFrame | None = None,
         batch_size: int = 16,
         stage: str = "",
@@ -182,7 +182,10 @@ class PDRLoader(SeriesLoader):
             features (list[str]): List of features to be loaded.
             auxiliary_features (list[str]): List of auxiliary features to be loaded.
             index_range (tuple[int]): Range of samples to load from timeseries.
-            model_indices (list[str]): List of model indices to load.
+            model_indices (list[str] | "all" | None): The models to load: a non-empty list of
+                model ids, or None or "all" for every model in the dataset (the first
+                ``load_first_n_keys`` if given). An empty list raises a ValueError, so that an
+                empty split never silently loads every model.
             model_df (pd.DataFrame, optional): DataFrame with all samples listed. Defaults to None.
             independent_variable_normalization_kwargs (dict, optional): kwargs for normalizing the independent variable. Defaults to {}.
             features_normalization_kwargs (dict, optional): kwargs for normalizing the features. Defaults to {}.
@@ -200,7 +203,6 @@ class PDRLoader(SeriesLoader):
         self.model_df = model_df
         self.start_index, self.end_index = index_range
         self.batch_size = batch_size
-        self.model_indices = model_indices
         self.normalization_parameters: dict[str, dict[str, float | np.ndarray]] = {}
         self.stage = stage
         if independent_variable_normalization_kwargs is None:
@@ -218,10 +220,19 @@ class PDRLoader(SeriesLoader):
         self.batch_subsampling = batch_subsampling
         self.model_indices_per_batch: list[list[str]] = []
 
-        if not self.model_indices:
+        if model_indices is None or model_indices == "all":
             self.model_indices = text_from_h5(dataset_path, "model_ids")
             if self.load_first_n_keys:
                 self.model_indices = self.model_indices[: self.load_first_n_keys]
+        elif not model_indices:
+            # An empty split (e.g. a split fraction of 0.0) must not fall back to all
+            # models, or it would leak models of the other splits into this one.
+            raise ValueError(
+                f"{stage or 'loader'}: model_indices is empty; pass None or 'all' to load "
+                "every model in the dataset"
+            )
+        else:
+            self.model_indices = list(model_indices)
         # if self.subsample_function:
         #     self.model_indices = self.subsample_function(dataset_path, self.model_indices)
         self.data_header: list[str] = text_from_h5(dataset_path, "header")
