@@ -107,9 +107,14 @@ def grad_loss(
         batch_data: BatchData,
         batch_aux: BatchAux,
     ) -> Float[Array, " 8"]:
-        pred_y, evolved_z, auto_y, direct_z, steps = eqx.filter_vmap(
-            model, in_axes=(0, 0, 0), out_axes=0
-        )(batch_iv[:, :, 0], batch_data, batch_aux)
+        output = eqx.filter_vmap(model, in_axes=(0, 0, 0), out_axes=0)(
+            batch_iv[:, :, 0], batch_data, batch_aux
+        )
+        pred_y = output.pred
+        evolved_z = output.extras["evolved_z"]
+        auto_y = output.extras["auto_y"]
+        direct_z = output.extras["direct_z"]
+        steps = output.extras["steps"]
         # Catch the zero padded cells:
         valid_time_mask = jnp.diff(batch_iv, axis=1, prepend=1.0) != 0.0
         # Catch the infinite values caused by max_step:
@@ -161,7 +166,7 @@ def grad_loss_only(
     Returns:
         Scalar: MSE for this batch
     """
-    pred_batch_data, _, _, _, _ = shard_map(
+    output = shard_map(
         eqx.filter_vmap(model, in_axes=(0, 0, 0), out_axes=0),
         mesh=MESH,
         in_specs=SPEC,
@@ -169,7 +174,7 @@ def grad_loss_only(
         check_rep=False,
     )(batch_iv[:, :, 0], batch_data, batch_aux)
     valid_mask = jnp.diff(batch_iv, axis=1, prepend=1.0) != 0.0
-    return jnp.mean(valid_mask * (pred_batch_data - batch_data[:, :, :]) ** 2)
+    return jnp.mean(valid_mask * (output.pred - batch_data[:, :, :]) ** 2)
 
 
 ScalarInt: TypeAlias = Integer[Array, ""]
@@ -417,11 +422,6 @@ def train(
             if terminate_early:
                 return train_loss, val_loss
     return train_loss, val_loss
-
-
-def make_predictions(mlp, iv, data, aux):
-    pred = eqx.filter_vmap(mlp, in_axes=(None, 0, 0))(iv, data[:, 0, :], aux)
-    return pred
 
 
 def _normalization_kwargs(norms: Norms | None) -> dict[str, dict]:

@@ -1,7 +1,7 @@
 import abc
 import math
 from collections.abc import Callable
-from typing import Any, TypeAlias, TypeVar
+from typing import Any, TypeVar
 
 import equinox as eqx
 import jax
@@ -15,14 +15,26 @@ from diffrax import (
 )
 from jaxtyping import Array, Float, PRNGKeyArray, Scalar, ScalarLike
 
-from neuralpdr._typing import IV, Aux, Data, LatentSeries, SolverSteps
+from neuralpdr._typing import IV, Aux, Data
 
 M = TypeVar("M", bound=eqx.Module)
 
-# Outputs of a model for a single sample: the decoded rollout, the rollout in
-# latent space, the decoding of the encoded data, the encoded data and the
-# number of solver steps.
-ModelOutput: TypeAlias = tuple[Data, LatentSeries, Data, LatentSeries, SolverSteps]
+
+class Output(eqx.Module):
+    """Outputs of a model for a single (unbatched) sample.
+
+    Under ``eqx.filter_vmap`` every leaf gains a leading batch dimension.
+
+    Attributes:
+        pred (Data): The prediction that is compared against the data
+        extras (dict[str, Array]): Model-specific outputs used in training or for
+            diagnostics; for ``EncoderEvolveDecoder``: the rollout in latent space
+            (``evolved_z``), the decoding of the encoded data (``auto_y``), the
+            encoded data (``direct_z``) and the number of solver steps (``steps``)
+    """
+
+    pred: Data
+    extras: dict[str, Array]
 
 
 class SurrogateModel(eqx.Module):
@@ -33,7 +45,7 @@ class SurrogateModel(eqx.Module):
     """
 
     @abc.abstractmethod
-    def __call__(self, ivs: IV, y: Data, aux: Aux) -> ModelOutput:
+    def __call__(self, ivs: IV, y: Data, aux: Aux) -> Output:
         """Predict the time series for a single sample.
 
         Args:
@@ -42,7 +54,7 @@ class SurrogateModel(eqx.Module):
             aux (Aux): The auxiliary data
 
         Returns:
-            ModelOutput: The model outputs for this sample
+            Output: The model outputs for this sample
         """
 
 
@@ -240,7 +252,7 @@ class EncoderEvolveDecoder(SurrogateModel):
             activation=jax.nn.softplus,
         )
 
-    def __call__(self, ivs: IV, y: Data, aux: Aux) -> ModelOutput:
+    def __call__(self, ivs: IV, y: Data, aux: Aux) -> Output:
         # encode
         z = jax.vmap(self.enc, in_axes=(0,))(y)
         initial_z = z[0]
@@ -267,13 +279,16 @@ class EncoderEvolveDecoder(SurrogateModel):
             throw=False,
             max_steps=16384,
         )
-        # Return the decoded rollout, the rollout in latent space, the decoding of the latent space and the latent space
-        return (
-            jax.vmap(self.dec, in_axes=(0,))(solution.ys),
-            solution.ys,
-            jax.vmap(self.dec, in_axes=(0,))(z),
-            z,
-            solution.stats["num_steps"],
+        # Return the decoded rollout, and as extras the rollout in latent space, the
+        # decoding of the latent space, the latent space and the number of solver steps
+        return Output(
+            pred=jax.vmap(self.dec, in_axes=(0,))(solution.ys),
+            extras={
+                "evolved_z": solution.ys,
+                "auto_y": jax.vmap(self.dec, in_axes=(0,))(z),
+                "direct_z": z,
+                "steps": solution.stats["num_steps"],
+            },
         )
 
 

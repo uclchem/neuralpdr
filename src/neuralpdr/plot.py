@@ -19,9 +19,11 @@ def plot_batch(
 ):
     batch_index = np.random.randint(0, len(loader))
     av, data, aux = loader[batch_index]
-    pred, z, ae_y, ae_z, _ = eqx.filter_vmap(mlp, in_axes=(0, 0, 0))(
-        av[:, :, 0], data, aux
-    )
+    output = eqx.filter_vmap(mlp, in_axes=(0, 0, 0))(av[:, :, 0], data, aux)
+    pred = output.pred
+    z = output.extras["evolved_z"]
+    ae_y = output.extras["auto_y"]
+    ae_z = output.extras["direct_z"]
     av = loader.inv_normalize(av, "iv")
     data = loader.inv_normalize(data, "data")
     aux = loader.inv_normalize(aux, "aux")

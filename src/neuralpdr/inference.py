@@ -71,16 +71,10 @@ _ACTIVATION: dict[Activation, Callable[[ArrayLike], Array]] = {
 def make_predictions(
     mlp: SurrogateModel, batch_iv: BatchIV, batch_data: BatchData, batch_aux: BatchAux
 ) -> dict[str, Array]:
-    pred_y, evolved_z, auto_y, direct_z, steps = eqx.filter_vmap(
-        mlp, in_axes=(0, 0, 0), out_axes=0
-    )(batch_iv[:, :, 0], batch_data, batch_aux)
-    return {
-        "pred_y": pred_y,
-        "evolved_z": evolved_z,
-        "auto_y": auto_y,
-        "direct_z": direct_z,
-        "steps": steps,
-    }
+    output = eqx.filter_vmap(mlp, in_axes=(0, 0, 0), out_axes=0)(
+        batch_iv[:, :, 0], batch_data, batch_aux
+    )
+    return {"pred_y": output.pred, **output.extras}
 
 
 def checkpoint_deserializer(
