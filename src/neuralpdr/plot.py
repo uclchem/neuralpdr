@@ -17,7 +17,8 @@ def plot_batch(
     save_file_path: Path = Path("."),
     n_samples: int = 16,
 ):
-    av, data, aux = loader[np.random.randint(0, len(loader))]
+    batch_index = np.random.randint(0, len(loader))
+    av, data, aux = loader[batch_index]
     pred, z, ae_y, ae_z, _ = eqx.filter_vmap(mlp, in_axes=(0, 0, 0))(
         av[:, :, 0], data, aux
     )
@@ -27,7 +28,7 @@ def plot_batch(
     pred = loader.inv_normalize(pred, "data")
     ae_y = loader.inv_normalize(ae_y, "data")
 
-    names = loader.model_indices
+    names = loader.get_batch_keys()[batch_index]
     if len(pred) > n_samples:
         names = names[:n_samples]
         av = av[:n_samples]
