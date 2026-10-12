@@ -194,6 +194,18 @@ class TestV1PDRLoader:
                     getattr(reused, name)[key], expected, rtol=1e-6, atol=1e-6
                 )
 
+    @pytest.mark.parametrize(
+        "frac, n_steps",
+        [(32, 32), (32.0, 32), (0.5, 60), (1.0, 120)],
+    )
+    def test_v1_timeseries_fraction(self, v1_config, frac, n_steps):
+        """Above 1.0 is a number of steps (also as a float, as pydantic gives it);
+        at most 1.0 is a fraction of the 120-step series."""
+        loader = PDRLoader(**v1_config)
+        loader.set_timeseries_fraction(frac)
+        for batch in loader:
+            np.testing.assert_array_equal(batch.mask.sum(axis=1), n_steps)
+
     def test_v1_iteration(self, v1_config):
         """Test iteration over batches."""
         loader = PDRLoader(**v1_config)

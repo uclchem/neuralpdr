@@ -145,7 +145,7 @@ class SeriesLoader(abc.ABC):
 
     @abc.abstractmethod
     def set_timeseries_fraction(self, frac: float | int) -> None:
-        """Limit the batches to a fraction (float) or number of steps (int) of each series."""
+        """Limit the batches to a fraction (<= 1.0) or a number of steps (> 1.0) of each series."""
 
     @abc.abstractmethod
     def inv_normalize(self, data: A, series_key: SeriesGroup) -> A:
@@ -527,17 +527,21 @@ class PDRLoader(SeriesLoader):
         """Set the fraction of the timeseries to load
 
         Args:
-            frac (float): Fraction of the timeseries to load
+            frac (float | int): Fraction of each series (at most 1.0), or the number
+                of steps per series (above 1.0; 32 and 32.0 are the same)
         """
         print("trying to set the next fraction index with frac", frac)
         if frac == 1.0 or frac is None:
             self.batcher.max_length = None
-        elif isinstance(frac, float):
+        elif frac > 1.0:
+            # Values above 1.0 are an absolute series length cap, not a
+            # fraction of the timeseries length. Pydantic coerces TOML ints
+            # to float on LearningScheme.timeseries_fraction, so `frac` may
+            # arrive as e.g. 32.0 rather than 32 -- treat it the same way.
+            self.batcher.max_length = int(frac)
+        elif isinstance(frac, (float, int)):
             # Set the end index to the fraction of the timeseries length
             self.batcher.max_length = np.ceil(frac * self.timeseries_length).astype(int)
-        elif isinstance(frac, int):
-            # Set the end index to the fraction of the timeseries length
-            self.batcher.max_length = frac
         else:
             raise ValueError("Fraction must be either a float or an integer")
         # Load the data again
