@@ -465,22 +465,9 @@ class PDRLoader(SeriesLoader):
                 for batch_iv in self.batched_independent_data
             ]
         ):
-            last_batch_length = len(self.batched_feature_data[-1])
-            self.batched_feature_data = jnp.array(
-                self.batched_feature_data[
-                    : -1 if last_batch_length != self.batch_size else None
-                ]
-            )
-            self.batched_auxiliary_data = jnp.array(
-                self.batched_auxiliary_data[
-                    : -1 if last_batch_length != self.batch_size else None
-                ]
-            )
-            self.batched_independent_data = jnp.array(
-                self.batched_independent_data[
-                    : -1 if last_batch_length != self.batch_size else None
-                ]
-            )
+            self.batched_feature_data = jnp.array(self.batched_feature_data)
+            self.batched_auxiliary_data = jnp.array(self.batched_auxiliary_data)
+            self.batched_independent_data = jnp.array(self.batched_independent_data)
 
     def get_all_batches(self) -> tuple[Batched, Batched, Batched]:
         """Get all the batches of data and av
