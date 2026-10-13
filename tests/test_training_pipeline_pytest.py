@@ -78,23 +78,7 @@ def create_test_config(base_config_path: Path, tmp_dir: Path, version: str):
     return config, test_config_path
 
 
-@pytest.mark.parametrize(
-    "version",
-    [
-        "v1",
-        pytest.param(
-            "v2",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "v2 header has 39 names for 41 data columns, so 'visual_extinction' "
-                    "reads a non-monotonic row index (see scripts/data/v2_add_headers.py)"
-                ),
-            ),
-        ),
-        "v3",
-    ],
-)
+@pytest.mark.parametrize("version", ["v1", "v2", "v3"])
 def test_training_pipeline_integration(version, tmp_path: Path):
     """Integration test that mirrors running `python src/neuralpdr/train.py config.yaml`.
 

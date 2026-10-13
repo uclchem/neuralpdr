@@ -178,10 +178,24 @@ class TestV2Dataset:
 
         with h5py.File(V2_TEST_PATH, "r") as f:
             header = [s.decode("utf-8") for s in f["header"][:]]
-            assert len(header) == 39, (
-                f"Expected 39 header fields, got {len(header)}\n"
+            first_model = f["model_ids"][0].decode("utf-8")
+            n_columns = f[f"{first_model}/pdr"].shape[1]
+            # One name per data column, starting with the 8 leading columns of a
+            # 1D 3D-PDR .pdr.fin file (idx x AV Tgas Tdust etype rho UVfield).
+            assert len(header) == n_columns == 41, (
+                f"Expected 41 header fields for {n_columns} data columns, got {len(header)}\n"
                 f"Regenerate test dataset: python scripts/data/create_test_datasets.py"
             )
+            assert header[:8] == [
+                "time_idx",
+                "position",
+                "visual_extinction",
+                "tgas",
+                "tdust",
+                "etype",
+                "density",
+                "radfield",
+            ]
 
     def test_v3_has_models(self):
         """Check v2 has model groups."""

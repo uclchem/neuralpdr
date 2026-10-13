@@ -14,13 +14,17 @@ from pathlib import Path
 
 import h5py
 
+# The 8 leading columns of a 1D 3D-PDR .pdr.fin file: idx x AV Tgas Tdust etype rho UVfield,
+# named as in v1 and v3. zeta is a per-model parameter (model_df), not a .pdr.fin column.
 PHYSICS_HEADER = [
+    "time_idx",
+    "position",
     "visual_extinction",
     "tgas",
     "tdust",
+    "etype",
     "density",
     "radfield",
-    "zeta_init",
 ]
 
 SPECIES = [
